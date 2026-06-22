@@ -169,3 +169,20 @@ curl -X POST http://localhost:4000/api/v1/auth/login \
 ```
 
 A successful login returns a JWT token. Pass it as `Authorization: Bearer <token>` on all subsequent requests.
+
+---
+
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'proman_edge'` on `bench start`
+
+This happens when the `proman_edge` app is listed in `sites/apps.txt` but has never been pip-installed into the bench virtualenv (e.g. the directory was cloned manually instead of via `bench get-app`).
+
+Fix:
+
+```bash
+cd ~/frappe-bench
+./env/bin/pip install -e apps/proman_edge
+```
+
+Then run `bench start` again.

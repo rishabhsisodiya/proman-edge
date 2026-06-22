@@ -10,7 +10,7 @@ export interface KPI {
 export interface FunnelStage {
   stage: string
   count: number
-  value: number
+  value: number | null
   avgDays: number | null
   isStalling: boolean
   dropPct: number | null

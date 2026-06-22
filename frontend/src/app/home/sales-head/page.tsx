@@ -44,9 +44,49 @@ const CARDS = [
   { base: 'Revenue',          toggle: true  },
 ]
 const SUFFIX: Record<string, string> = { month: 'MTD', q: 'QTD', ytd: 'YTD' }
-const MLAB = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
-const QLAB = ["Sep'25", "Dec'25", "Mar'26", "Jun'26"]
-const YLAB = ['2024', '2025', '2026']
+// Dynamic labels — always based on today so they stay correct as time passes
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+function buildMlab(): string[] {
+  const now = new Date()
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
+    return MONTHS[d.getMonth()]
+  })
+}
+function buildQlab(): string[] {
+  const now  = new Date()
+  const absQ = now.getFullYear() * 4 + Math.floor(now.getMonth() / 3) // absolute quarter
+  return Array.from({ length: 4 }, (_, i) => {
+    const q    = absQ - 3 + i
+    const year = Math.floor(q / 4)
+    const qi   = q % 4                    // 0-based quarter within year
+    const endMonth = (qi + 1) * 3 - 1    // last month of that quarter (0-based)
+    return MONTHS[endMonth] + "'" + String(year).slice(2)
+  })
+}
+function buildYlab(): string[] {
+  const y = new Date().getFullYear()
+  return [String(y - 2), String(y - 1), String(y)]
+}
+const MLAB = buildMlab()
+const QLAB = buildQlab()
+const YLAB = buildYlab()
+// Inject animation styles once at module load — avoids re-inserting on every render
+if (typeof document !== 'undefined') {
+  const id = 'proman-kpi-styles'
+  if (!document.getElementById(id)) {
+    const s = document.createElement('style')
+    s.id = id
+    s.textContent = `
+      @keyframes barGrow { from { transform: scaleY(0) } to { transform: scaleY(1) } }
+      .spark-bar { transform-origin: bottom; animation: barGrow .35s ease both; }
+      .kpi-card { transition: transform .12s, box-shadow .12s; }
+      .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+    `
+    document.head.appendChild(s)
+  }
+}
+
 // Spark value formatter per card index
 function fmtRupee(v: number): string {
   if (v >= 10_000_000) return `₹${(v / 10_000_000).toFixed(1)}Cr`
@@ -84,19 +124,20 @@ function shade(hex: string, amt: number): string {
   return '#' + (0x1000000 + (c(r) << 16) + (c(g) << 8) + c(b)).toString(16).slice(1)
 }
 
-function labelsFor(spark: number[]): string[] {
-  if (spark.length <= 3) return YLAB.slice(0, spark.length)
-  if (spark.length <= 4) return QLAB.slice(0, spark.length)
+function labelsFor(spark: number[], period: Period = 'month'): string[] {
+  if (period === 'ytd') return YLAB.slice(0, spark.length)
+  if (period === 'q')   return QLAB.slice(0, spark.length)
   return MLAB.slice(0, spark.length)
 }
 
 // ── SVG 3D funnel ──────────────────────────────────────────────────────────
 function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: string) => void }) {
   const CX = 200, H = 54, Y0 = 36, MAXW = 340, MINW = 96
-  const maxN = Math.max(...funnel.map(s => s.count))
+  const maxN = Math.max(...funnel.map(s => s.count), 1) // avoid divide-by-zero
   const W: number[] = []
   funnel.forEach((s, i) => {
-    const natural = Math.max(MINW, Math.round(MAXW * s.count / maxN))
+    // Use MINW for zero-count stages so funnel doesn't invert
+    const natural = s.count === 0 ? MINW : Math.max(MINW, Math.round(MAXW * s.count / maxN))
     W.push(i === 0 ? natural : Math.min(W[i - 1], natural))
   })
   W.push(Math.round(W[W.length - 1] * 0.5))
@@ -120,7 +161,8 @@ function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: st
       {funnel.map((r, i) => {
         const hT = W[i] / 2, hB = W[i + 1] / 2
         const yT = Y0 + i * H, yB = yT + H
-        const drop = i > 0 ? Math.round(100 - (r.count / funnel[i - 1].count * 100)) : null
+        const prev = i > 0 ? funnel[i - 1].count : null
+        const drop = prev !== null && prev > 0 ? Math.round(100 - (r.count / prev * 100)) : null
         const path = `M${CX - hT},${yT} Q${CX},${yT + 2 * bow[i]} ${CX + hT},${yT} L${CX + hB},${yB} Q${CX},${yB + 2 * bow[i + 1]} ${CX - hB},${yB} Z`
         return (
           <g key={i} onClick={() => onStage(r.stage)} style={{ cursor: 'pointer' }}>
@@ -336,6 +378,21 @@ export default function SalesHeadHomepage() {
                 )}
               </div>
             )}
+            {/* Logout */}
+            <button
+              onClick={() => {
+                localStorage.removeItem('proman_token')
+                localStorage.removeItem('proman_user')
+                document.cookie = 'proman_role=; path=/; max-age=0'
+                router.push('/')
+              }}
+              title="Logout"
+              style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+              onMouseOver={e => (e.currentTarget.style.background = 'rgba(255,80,80,.25)')}
+              onMouseOut={e => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}>
+              <i className="ti ti-logout" style={{ fontSize: 14 }} />
+              <span>Logout</span>
+            </button>
             {/* Bell */}
             <div style={{ position: 'relative' }} ref={bellRef}>
               <button onClick={() => setShowBell(v => !v)}
@@ -398,13 +455,13 @@ export default function SalesHeadHomepage() {
               const kpi  = card.toggle ? data.kpisAll[per][idx] : data.kpis[idx]
               if (!kpi) return null
               const spark  = kpi.spark ?? []
-              const labels = labelsFor(spark)
+              const labels = labelsFor(spark, per)
               const mx     = Math.max(...spark, 1)
               const fmt    = SFMT[idx]
               const label  = card.base + (card.toggle ? ' ' + SUFFIX[per] : '')
               return (
-                <div key={idx}
-                  style={{ background: 'rgba(255,255,255,.07)', border: `1px solid rgba(255,255,255,.13)`, borderTop: `3px solid ${ACCENT[idx]}`, borderRadius: 11, padding: '11px 13px', cursor: 'pointer', transition: 'border-color .12s' }}
+                <div key={idx} className="kpi-card"
+                  style={{ background: 'rgba(255,255,255,.07)', border: `1px solid rgba(255,255,255,.13)`, borderTop: `3px solid ${ACCENT[idx]}`, borderRadius: 11, padding: '11px 13px', cursor: 'pointer' }}
                   onMouseOver={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.3)')}
                   onMouseOut={e => (e.currentTarget.style.borderTopColor = ACCENT[idx])}>
                   {/* label row */}
@@ -421,7 +478,7 @@ export default function SalesHeadHomepage() {
                       </span>
                     )}
                     {!card.toggle && idx === 1 && (
-                      <button style={{ fontSize: 9, color: 'rgba(255,255,255,.6)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 600 }}>View all ↗</button>
+                      <button onClick={() => window.open(erpUrl('quotation?docstatus=1&status=Open'), '_blank')} style={{ fontSize: 9, color: 'rgba(255,255,255,.6)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 600 }}>View all ↗</button>
                     )}
                     {!card.toggle && idx === 3 && (convMtd < 25) && (
                       <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: '#FEF3C7', color: '#92600A' }}>below 25%</span>
@@ -444,7 +501,7 @@ export default function SalesHeadHomepage() {
                         return (
                           <div key={j} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 2, minWidth: 0 }}>
                             <span style={{ fontSize: 8, fontWeight: 600, color: '#FFFFFF', lineHeight: 1, whiteSpace: 'nowrap' }}>{fmt(v)}</span>
-                            <div style={{ width: '100%', maxWidth: 26, background: isCur ? '#FF7604' : 'rgba(181,212,244,.42)', borderRadius: 2, height: Math.max(4, Math.round(28 * v / mx)) }} />
+                            <div className="spark-bar" style={{ width: '100%', maxWidth: 26, background: isCur ? '#FF7604' : 'rgba(181,212,244,.42)', borderRadius: 2, height: Math.max(4, Math.round(28 * v / mx)), animationDelay: `${j * 40}ms` }} />
                             <span style={{ fontSize: 8, color: '#8F92B5', lineHeight: 1 }}>{labels[j] ?? ''}</span>
                           </div>
                         )

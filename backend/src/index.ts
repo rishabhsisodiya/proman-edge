@@ -1,17 +1,21 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import salesRoutes from './routes/sales'
 import authRoutes from './routes/auth'
 import manufacturingRoutes from './routes/manufacturing'
-
-dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT || 4000
 
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000' }))
 app.use(express.json())
+
+// Request logger
+app.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`)
+  next()
+})
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }))
 

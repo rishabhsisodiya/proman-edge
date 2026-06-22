@@ -1,16 +1,18 @@
 import { Router, Request, Response } from 'express'
 import { getSalesHomepage, getQuotationDetail, extendQuotation, convertToSalesOrder } from '../services/salesService'
+import { getSalesHomepageFromDB } from '../services/salesServiceDB'
 
 const router = Router()
+const useMock = () => process.env.USE_MOCK !== 'false'
 
 // GET /api/v1/sales/homepage?companies=PISPL,ACE,PROMAX
-// or  ?companies=PISPL  (single)
-// Frontend sends the user's companies array joined by comma
 router.get('/homepage', async (req: Request, res: Response) => {
   try {
     const raw = (req.query.companies as string) || 'PISPL'
     const companies = raw.split(',').map(c => c.trim()).filter(Boolean)
-    const data = await getSalesHomepage(companies)
+    const data = useMock()
+      ? await getSalesHomepage(companies)
+      : await getSalesHomepageFromDB(companies[0])
     res.json({ success: true, data })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
