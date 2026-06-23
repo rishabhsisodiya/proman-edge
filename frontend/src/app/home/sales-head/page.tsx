@@ -94,18 +94,19 @@ function fmtRupee(v: number): string {
   if (v >= 1_000)      return `₹${Math.round(v / 1_000)}K`
   return `₹${Math.round(v)}`
 }
+const fmtCr = (v: number) => `₹${v.toFixed(1)}Cr`
 const SFMT: ((v: number) => string)[] = [
   v => String(v),
   v => String(v),
-  v => fmtRupee(v),
+  fmtCr,          // Orders spark — values already in Cr
   v => `${v}%`,
-  v => fmtRupee(v),
+  fmtCr,          // Revenue spark — values already in Cr
 ]
 const QUICK_ACTIONS: { icon: string; label: string; path: string }[] = [
   { icon: 'ti-file-dollar',  label: 'Create quotation',      path: 'quotation/new-quotation-1'                      },
   { icon: 'ti-pencil-plus',  label: 'Log enquiry',           path: 'lead/new-lead-1'                                },
-  { icon: 'ti-phone',        label: 'Record follow-up',      path: 'crm-call-log/new-crm-call-log-1'                },
-  { icon: 'ti-funnel',       label: 'View CRM pipeline',     path: 'crm-pipeline'                                   },
+  { icon: 'ti-phone',        label: 'Record follow-up',      path: 'communication'    },
+  { icon: 'ti-funnel',       label: 'View CRM pipeline',     path: 'crm'              },
   { icon: 'ti-circle-x',    label: 'Lost order analysis',   path: 'quotation?docstatus=1&status=Lost'              },
   { icon: 'ti-report',       label: 'Customer visit report', path: 'customer-visit/new-customer-visit-1'            },
   { icon: 'ti-checkup-list', label: 'Approval status',       path: 'workflow-action'                                },
@@ -132,14 +133,11 @@ function labelsFor(spark: number[], period: Period = 'month'): string[] {
 
 // ── SVG 3D funnel ──────────────────────────────────────────────────────────
 function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: string) => void }) {
-  const CX = 200, H = 54, Y0 = 36, MAXW = 340, MINW = 96
-  const maxN = Math.max(...funnel.map(s => s.count), 1) // avoid divide-by-zero
-  const W: number[] = []
-  funnel.forEach((s, i) => {
-    // Use MINW for zero-count stages so funnel doesn't invert
-    const natural = s.count === 0 ? MINW : Math.max(MINW, Math.round(MAXW * s.count / maxN))
-    W.push(i === 0 ? natural : Math.min(W[i - 1], natural))
-  })
+  const CX = 200, H = 60, Y0 = 36
+  // Fixed widths per stage — shape never changes regardless of data values.
+  // Each stage tapers by ~55px giving a clean consistent funnel silhouette.
+  const FIXED_W = [340, 285, 220, 155, 130]
+  const W: number[] = funnel.map((_, i) => FIXED_W[i] ?? 95)
   W.push(Math.round(W[W.length - 1] * 0.5))
   const bow = W.map(w => w * 0.08)
   const svgH = Y0 + funnel.length * H + Math.round(bow[W.length - 1] * 2) + 10
@@ -168,13 +166,13 @@ function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: st
           <g key={i} onClick={() => onStage(r.stage)} style={{ cursor: 'pointer' }}>
             <path d={path} fill={`url(#fg${i})`} />
             <text x={CX} y={yT + H / 2 + bow[i] * 0.7 + 5} textAnchor="middle"
-              fill="#fff" fontSize="13.5" fontWeight="700"
+              fill="#fff" fontSize={i === funnel.length - 1 ? '11' : '13.5'} fontWeight="700"
               style={{ pointerEvents: 'none', letterSpacing: '.3px' }}>
               {r.stage} {r.count}
             </text>
             <text x={CX + Math.max(hT, 120) + 26} y={yT + H / 2 + 10}
               fontSize="14.5" fontWeight="700" fill="#1A2433">
-              {r.value != null ? `₹${r.value}Cr` : '—'}
+              {r.value != null ? `₹${r.value.toFixed(1)}Cr` : '—'}
               {drop !== null && <tspan dx="9" fontSize="11.5" fill="#C0392B">{drop}% drop</tspan>}
             </text>
           </g>
@@ -315,7 +313,7 @@ export default function SalesHeadHomepage() {
       title: a.text.split('.')[0],
       sub:   a.text.split('.').slice(1).join('.').trim(),
     })),
-    ...(convMtd < 25 ? [{ color: '#B45309', title: 'Conversion rate below 25% this month', sub: 'Below 30-day average' }] : []),
+    ...(convMtd < 25 && (data.kpis[0]?.value ?? '0') !== '0' ? [{ color: '#B45309', title: 'Conversion rate below 25% this month', sub: 'Below 30-day average' }] : []),
   ]
 
   const monthName = new Date().toLocaleString('en', { month: 'long' })
@@ -324,6 +322,7 @@ export default function SalesHeadHomepage() {
   const funnel  = data.funnel[funnelPeriod]
   const rMax    = Math.max(...data.regionPipeline.map(r => r.quoted + r.negotiation + r.won))
   const gaugeR  = 49, gaugeCirc = 2 * Math.PI * gaugeR
+  const gaugePct   = Math.min(pct, 100) // cap visual fill — value can exceed 100% but arc stays full
   const gaugeColor = pct >= 90 ? '#1A6B3A' : pct >= 70 ? '#FF7604' : '#B42318'
   const sparkMax   = Math.max(...data.revenueTarget.trend.map(t => t.value))
 
@@ -480,7 +479,7 @@ export default function SalesHeadHomepage() {
                     {!card.toggle && idx === 1 && (
                       <button onClick={() => window.open(erpUrl('quotation?docstatus=1&status=Open'), '_blank')} style={{ fontSize: 9, color: 'rgba(255,255,255,.6)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 600 }}>View all ↗</button>
                     )}
-                    {!card.toggle && idx === 3 && (convMtd < 25) && (
+                    {!card.toggle && idx === 3 && (convMtd < 25) && (data.kpis[0]?.value ?? '0') !== '0' && (
                       <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: '#FEF3C7', color: '#92600A' }}>below 25%</span>
                     )}
                   </div>
@@ -554,7 +553,7 @@ export default function SalesHeadHomepage() {
                   <circle cx="59" cy="59" r="49" fill="none" stroke="#DDDDE8" strokeWidth="11" />
                   <circle cx="59" cy="59" r="49" fill="none" stroke={gaugeColor} strokeWidth="11"
                     strokeDasharray={`${gaugeCirc} ${gaugeCirc}`}
-                    strokeDashoffset={gaugeCirc * (1 - pct / 100)}
+                    strokeDashoffset={gaugeCirc * (1 - gaugePct / 100)}
                     strokeLinecap="round" />
                 </svg>
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
@@ -565,13 +564,16 @@ export default function SalesHeadHomepage() {
               {/* Gauge note */}
               <div style={{ fontSize: 11, color: '#2A2F69', textAlign: 'center' }}>
                 Day {day} of {dim} · {dim - day} days remaining in {monthName} ·{' '}
-                {(() => {
-                  const pacePct = Math.round(day / dim * 100)
-                  const diff = pct - pacePct
-                  return diff >= 0
-                    ? <span style={{ color: '#1A6B3A', fontWeight: 700 }}>{diff}% ahead of target pace</span>
-                    : <span style={{ color: '#B42318', fontWeight: 700 }}>{-diff}% behind target pace</span>
-                })()}
+                {pct > 100
+                  ? <span style={{ color: '#1A6B3A', fontWeight: 700 }}>Target exceeded ✓</span>
+                  : (() => {
+                      const pacePct = Math.round(day / dim * 100)
+                      const diff = pct - pacePct
+                      return diff >= 0
+                        ? <span style={{ color: '#1A6B3A', fontWeight: 700 }}>{diff}% ahead of pace</span>
+                        : <span style={{ color: '#B42318', fontWeight: 700 }}>{-diff}% behind pace</span>
+                    })()
+                }
               </div>
               {/* Sparkline */}
               <div style={{ width: '100%' }}>

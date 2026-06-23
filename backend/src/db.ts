@@ -15,6 +15,8 @@ function getPool(): mysql.Pool {
 
   const sslOptions = process.env.DB_SSL_CA
     ? { ssl: { ca: fs.readFileSync(process.env.DB_SSL_CA) } }
+    : process.env.DB_SSL === 'false'
+    ? { ssl: false }
     : {}
 
   pool = mysql.createPool({

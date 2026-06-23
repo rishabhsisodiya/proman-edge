@@ -163,21 +163,22 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
   const label = { mtd: 'MTD', qtr: 'Quarter', ytd: 'YTD' }[period]
 
   // Sparkline SQL differs by period: monthly=6mo, qtr=4 quarters, ytd=3 years
+  // YTD: cap each year to the same day-of-year as today so all bars are comparable
   const enqSparkSql = period === 'ytd'
-    ? `SELECT DATE_FORMAT(creation,'%Y') AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) GROUP BY m ORDER BY m`
+    ? `SELECT DATE_FORMAT(creation,'%Y') AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) AND DATE_FORMAT(creation,'%m-%d') <= DATE_FORMAT(CURDATE(),'%m-%d') GROUP BY m ORDER BY m`
     : period === 'qtr'
     ? `SELECT CONCAT(YEAR(creation),'-Q',QUARTER(creation)) AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) GROUP BY m ORDER BY m`
     : `SELECT DATE_FORMAT(creation,'%Y-%m') AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) GROUP BY m ORDER BY m`
 
-  // Spark shows order VALUE trend (₹ Cr) so SFMT[2]=fmtRupee lines up with the bars
+  // Spark shows order VALUE trend (₹ Cr) — YTD capped to same day-of-year
   const ordSparkSql = period === 'ytd'
-    ? `SELECT DATE_FORMAT(transaction_date,'%Y') AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Order\` WHERE docstatus=1 AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) GROUP BY m ORDER BY m`
+    ? `SELECT DATE_FORMAT(transaction_date,'%Y') AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Order\` WHERE docstatus=1 AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) AND DATE_FORMAT(transaction_date,'%m-%d') <= DATE_FORMAT(CURDATE(),'%m-%d') GROUP BY m ORDER BY m`
     : period === 'qtr'
     ? `SELECT CONCAT(YEAR(transaction_date),'-Q',QUARTER(transaction_date)) AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Order\` WHERE docstatus=1 AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) GROUP BY m ORDER BY m`
     : `SELECT DATE_FORMAT(transaction_date,'%Y-%m') AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Order\` WHERE docstatus=1 AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) GROUP BY m ORDER BY m`
 
   const revSparkSql = period === 'ytd'
-    ? `SELECT DATE_FORMAT(posting_date,'%Y') AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Invoice\` WHERE docstatus=1 AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) GROUP BY m ORDER BY m`
+    ? `SELECT DATE_FORMAT(posting_date,'%Y') AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Invoice\` WHERE docstatus=1 AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) AND DATE_FORMAT(posting_date,'%m-%d') <= DATE_FORMAT(CURDATE(),'%m-%d') GROUP BY m ORDER BY m`
     : period === 'qtr'
     ? `SELECT CONCAT(YEAR(posting_date),'-Q',QUARTER(posting_date)) AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Invoice\` WHERE docstatus=1 AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) GROUP BY m ORDER BY m`
     : `SELECT DATE_FORMAT(posting_date,'%Y-%m') AS m, CAST(COALESCE(SUM(grand_total),0) AS CHAR) AS val FROM \`tabSales Invoice\` WHERE docstatus=1 AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) GROUP BY m ORDER BY m`
@@ -261,11 +262,11 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
   const ordSparkPadded  = padSeries(
     (ordSpark as { m: string; val: string }[]).map(r => ({ m: r.m, val: parseFloat(r.val) })),
     sparkKeys,
-  ).map(v => parseFloat((v / 10_000_000).toFixed(2)))
+  ).map(v => v / 10_000_000)
   const revSparkPadded  = padSeries(
     (revSparkRaw as { m: string; val: string }[]).map(r => ({ m: r.m, val: parseFloat(r.val) })),
     sparkKeys,
-  ).map(v => parseFloat((v / 10_000_000).toFixed(2)))
+  ).map(v => v / 10_000_000)
 
   // Conversion: Leads → Orders (current period)
   const conv = enq > 0 ? Math.round((ord / enq) * 100) : 0
@@ -335,15 +336,19 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
 // ── Revenue sparkline ───────────────────────────────────────────────────────
 
 async function getRevenueSparkline(company: string): Promise<{ month: string; value: number }[]> {
+  const mKeys = monthKeys(6)
+  const from6 = mKeys[0] + '-01'
   const rows = await query<{ m: string; val: number }>(
     `SELECT DATE_FORMAT(posting_date, '%Y-%m') AS m,
             COALESCE(SUM(grand_total), 0) AS val
      FROM \`tabSales Invoice\`
      WHERE docstatus = 1
-       AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+       AND posting_date >= ?
      GROUP BY m ORDER BY m`,
+    [from6],
   )
-  return rows.map(r => ({ month: monthLabel(r.m + '-01'), value: parseFloat((r.val / 10_000_000).toFixed(2)) }))
+  const padded = padSeries(rows as { m: string; val: number }[], mKeys)
+  return mKeys.map((k, i) => ({ month: monthLabel(k + '-01'), value: parseFloat((padded[i] / 10_000_000).toFixed(2)) }))
 }
 
 // ── Revenue target ──────────────────────────────────────────────────────────

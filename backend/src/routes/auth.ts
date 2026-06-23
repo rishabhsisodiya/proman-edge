@@ -11,7 +11,9 @@ const JWT_EXPIRES_IN = '24h'
 const ROLE_PRIORITY = [
   'Managing Director',
   'Sales Head',
+  'Sales Master Manager',
   'Manufacturing Head',
+  'Manufacturing Manager',
   'Finance Head',
   'Engineering Head',
   'Procurement Head',
@@ -20,7 +22,9 @@ const ROLE_PRIORITY = [
 const ROLE_SLUG: Record<string, string> = {
   'Managing Director':   'md',
   'Sales Head':          'sales-head',
+  'Sales Master Manager': 'sales-head',
   'Manufacturing Head':  'manufacturing-head',
+  'Manufacturing Manager': 'manufacturing-head',
   'Finance Head':        'finance-head',
   'Engineering Head':    'engineering-head',
   'Procurement Head':    'procurement-head',
