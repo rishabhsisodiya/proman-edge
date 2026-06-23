@@ -260,7 +260,7 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
   const sparkKeys = period === 'ytd' ? yearKeys(3) : period === 'qtr' ? quarterKeys(4) : monthKeys(6)
   const enqSparkPadded  = padSeries(enqSpark as { m: string; val: number }[], sparkKeys)
   const ordSparkPadded  = padSeries(
-    (ordSpark as { m: string; val: string }[]).map(r => ({ m: r.m, val: parseFloat(r.val) })),
+    (ordSpark as unknown as { m: string; val: string }[]).map(r => ({ m: r.m, val: parseFloat(r.val) })),
     sparkKeys,
   ).map(v => v / 10_000_000)
   const revSparkPadded  = padSeries(

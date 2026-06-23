@@ -13,10 +13,8 @@ function getPool(): mysql.Pool {
 
   console.log(`[db] creating pool → ${user}@${host}:${port}/${database}`)
 
-  const sslOptions = process.env.DB_SSL_CA
+  const sslOptions: { ssl?: { ca: Buffer } | string } = process.env.DB_SSL_CA
     ? { ssl: { ca: fs.readFileSync(process.env.DB_SSL_CA) } }
-    : process.env.DB_SSL === 'false'
-    ? { ssl: false }
     : {}
 
   pool = mysql.createPool({
