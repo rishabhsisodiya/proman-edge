@@ -134,11 +134,11 @@ function labelsFor(spark: number[], period: Period = 'month'): string[] {
 // ── SVG 3D funnel ──────────────────────────────────────────────────────────
 function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: string) => void }) {
   const CX = 200, H = 60, Y0 = 36
-  // Fixed widths per stage — shape never changes regardless of data values.
-  // Each stage tapers by ~55px giving a clean consistent funnel silhouette.
-  const FIXED_W = [340, 285, 220, 155, 130]
-  const W: number[] = funnel.map((_, i) => FIXED_W[i] ?? 95)
-  W.push(Math.round(W[W.length - 1] * 0.5))
+  // 6 boundary widths for 5 stages — uniform 50px step so all stages look like
+  // equal slices of the same triangle (340 → 290 → 240 → 190 → 140 → 90).
+  const ALL_W = [340, 290, 240, 190, 140, 90]
+  const W: number[] = funnel.map((_, i) => ALL_W[i] ?? 90)
+  W.push(ALL_W[funnel.length] ?? 90)
   const bow = W.map(w => w * 0.08)
   const svgH = Y0 + funnel.length * H + Math.round(bow[W.length - 1] * 2) + 10
 
@@ -170,7 +170,7 @@ function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: st
               style={{ pointerEvents: 'none', letterSpacing: '.3px' }}>
               {r.stage} {r.count}
             </text>
-            <text x={CX + Math.max(hT, 120) + 26} y={yT + H / 2 + 10}
+            <text x={CX + hT + 14} y={yT + H / 2 + 10}
               fontSize="14.5" fontWeight="700" fill="#1A2433">
               {r.value != null ? `₹${r.value.toFixed(1)}Cr` : '—'}
               {drop !== null && <tspan dx="9" fontSize="11.5" fill="#C0392B">{drop}% drop</tspan>}

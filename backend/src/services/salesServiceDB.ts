@@ -97,7 +97,7 @@ async function getFunnel(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promis
     { stage: 'Qualified',   count: opps[0].cnt,   value: opps[0].val / 10_000_000 },
     { stage: 'Quoted',      count: quots[0].cnt,  value: quots[0].val / 10_000_000 },
     { stage: 'Negotiation', count: negs[0].cnt,   value: negs[0].val / 10_000_000 },
-    { stage: 'Order Won',   count: orders[0].cnt, value: orders[0].val / 10_000_000 },
+    { stage: 'Orders',      count: orders[0].cnt, value: orders[0].val / 10_000_000 },
   ]
 
   return stages.map((s, i) => {
