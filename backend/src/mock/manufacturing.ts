@@ -5,7 +5,7 @@ export const manufacturingHomepageMock: ManufacturingHomepageData = {
   erpBaseUrl: 'http://proman.localhost:8000',
 
   kpis: {
-    activeWOs:      { value: 16, sub: 'Across 8 stages' },
+    activeWOs:      { value: 16, sub: 'Across 8 stages', red: 4, amber: 5, green: 5, hold: 2 },
     completedToday: { value: 2,  sub: 'WO-046, WO-041'  },
     delayedRed:     { value: 4,  sub: 'Needs action now' },
     atRiskAmber:    { value: 5,  sub: 'Monitor closely'  },
@@ -77,4 +77,14 @@ export const manufacturingHomepageMock: ManufacturingHomepageData = {
     { wo: 'WO-050', customer: 'ACC Limited',    product: 'VSI-750',   due: 'Jun 13', stage: 'S7', completion: 90,  rag: 'amber' },
     { wo: 'WO-041', customer: 'Ambuja Cements', product: 'PE-600',    due: 'Jun 13', stage: 'S9', completion: 100, rag: 'green' },
   ],
+
+  qualityRejections: {
+    rejections: 3,
+    rework: 2,
+    items: [
+      { wo: 'WO-058', product: 'PE-900',   stage: 'Final assy',  defect: 'Weld porosity',    disposition: 'Rework',   rag: 'amber' },
+      { wo: 'WO-091', product: 'CC-200',   stage: 'Machining',   defect: 'Bore out of tol.', disposition: 'Rework',   rag: 'amber' },
+      { wo: 'WO-077', product: 'FE-100',   stage: 'Fabrication', defect: 'Plate crack',      disposition: 'Rejected', rag: 'red'   },
+    ],
+  },
 }

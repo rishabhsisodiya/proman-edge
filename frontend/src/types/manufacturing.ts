@@ -20,12 +20,16 @@ export interface CompletingWO {
   wo: string; customer: string; product: string; due: string
   stage: string; completion: number; rag: 'red' | 'amber' | 'green'
 }
+export interface QualityRejection {
+  wo: string; product: string; stage: string
+  defect: string; disposition: string; rag: 'red' | 'amber'
+}
 export interface ManufacturingHomepageData {
   syncedAt:   string
   erpBaseUrl: string
   alert:      string
   kpis: {
-    activeWOs:      { value: number; sub: string }
+    activeWOs:      { value: number; sub: string; red: number; amber: number; green: number; hold: number }
     completedToday: { value: number; sub: string }
     delayedRed:     { value: number; sub: string }
     atRiskAmber:    { value: number; sub: string }
@@ -41,4 +45,5 @@ export interface ManufacturingHomepageData {
   }
   downtime: { totalHrs: number; machines: DowntimeMachine[] }
   completingThisWeek: CompletingWO[]
+  qualityRejections: { rejections: number; rework: number; items: QualityRejection[] }
 }

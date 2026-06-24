@@ -6,346 +6,574 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useManufacturingHomepage } from '@/hooks/useManufacturingHomepage'
 import type { PipelineStage, SubStage } from '@/types/manufacturing'
 
-const NAVY   = '#0C447C'
-const RED    = '#A32D2D'
-const AMBER  = '#854F0B'
-const GREEN  = '#1A6B3A'
-const BORDER = '#E5E7EB'
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const NAVY       = '#2A2F69'
+const NAVY_TINT  = '#EAEAF0'
+const ORANGE     = '#FF7604'
+const BG         = '#F7F7F9'
+const BORDER     = '#DDDDE8'
+const INK        = '#2A2F69'
+const INK2       = '#5F638F'
+const INK3       = '#8F92B5'
+const GREEN      = '#1A6B3A'
+const GREEN_BG   = '#E3F2E9'
+const AMBER      = '#B45309'
+const AMBER_BG   = '#FBEBD7'
+const RED        = '#A32D2D'
+const RED_BG     = '#F8EAEA'
+const HOLD_BG    = '#EEF0F3'
+const HOLD_TX    = '#4B5563'
 
-const RAG_BG:    Record<string, string> = { red: '#FCEBEB', amber: '#FEF3C7', green: '#D1FAE5', hold: '#F1EFE8' }
-const RAG_COLOR: Record<string, string> = { red: RED,       amber: AMBER,     green: '#065F46', hold: '#5F5E5A' }
+const RAG_BG:  Record<string, string> = { red: RED_BG,   amber: AMBER_BG, green: GREEN_BG, hold: HOLD_BG }
+const RAG_TX:  Record<string, string> = { red: RED,      amber: AMBER,    green: GREEN,    hold: HOLD_TX }
+const RAG_HEX: Record<string, string> = { red: '#A32D2D',amber: '#B45309',green: '#1A6B3A',hold: '#6B7280' }
 
-// Roles that can switch dashboards and where they can go back to
-const BACK_OPTIONS: Record<string, { label: string; slug: string }[]> = {
-  'sales-head': [{ label: 'Sales Head',  slug: 'sales-head'  }],
-  'md':         [{ label: 'Sales Head',  slug: 'sales-head'  }],
+const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
+  'manufacturing-head': [{ label: 'Sales Head', slug: 'sales-head' }],
+  'md': [
+    { label: 'Sales Head',         slug: 'sales-head'         },
+    { label: 'Manufacturing Head', slug: 'manufacturing-head' },
+  ],
 }
 
 const QUICK_ACTIONS = [
-  { icon: 'ti-arrow-right',    label: 'Update WO stage',      path: 'work-order'                              },
-  { icon: 'ti-tool',           label: 'Log downtime',         path: 'downtime-entry/new-downtime-entry-1'     },
-  { icon: 'ti-layout-kanban',  label: 'View pipeline',        path: 'work-order?status=In+Process'            },
-  { icon: 'ti-refresh',        label: 'Create rework',        path: 'work-order/new-work-order-1'             },
-  { icon: 'ti-package-off',    label: 'Shortage report',      path: 'material-request?status=Pending'         },
-  { icon: 'ti-users',          label: 'Attendance',           path: 'attendance'                              },
-  { icon: 'ti-chart-bar',      label: 'Completion report',    path: 'work-order?status=Completed'             },
-  { icon: 'ti-alert-triangle', label: 'Escalate to dispatch', path: 'delivery-note'                           },
+  { icon: 'ti-arrow-right',    label: 'Update WO stage',      path: 'work-order',                           primary: true  },
+  { icon: 'ti-tool',           label: 'Log downtime',         path: 'downtime-entry/new-downtime-entry-1',  primary: false },
+  { icon: 'ti-refresh',        label: 'Create rework',        path: 'work-order/new-work-order-1',          primary: false },
+  { icon: 'ti-layout-kanban',  label: 'View pipeline',        path: 'work-order?status=In+Process',         primary: false },
+  { icon: 'ti-package-off',    label: 'Shortage report',      path: 'material-request?status=Pending',      primary: false },
+  { icon: 'ti-chart-bar',      label: 'Completion report',    path: 'work-order?status=Completed',          primary: false },
+  { icon: 'ti-alert-triangle', label: 'Escalate to dispatch', path: 'delivery-note',                        primary: false },
 ]
 
-function PipelineTile({ s }: { s: PipelineStage }) {
-  const total = s.red + s.amber + s.green + s.hold
-  return (
-    <div style={{ background: s.color, borderRadius: 8, padding: '8px 6px', textAlign: 'center', cursor: 'pointer' }}>
-      <div style={{ fontSize: 8, fontWeight: 500, color: '#fff', marginBottom: 4, lineHeight: 1.2 }}>{s.label}</div>
-      <div style={{ fontSize: 18, fontWeight: 500, color: '#fff' }}>{total}</div>
-      <div style={{ display: 'flex', height: 3, borderRadius: 99, overflow: 'hidden', marginTop: 4, gap: 1 }}>
-        {s.red   > 0 && <div style={{ flex: s.red,   background: '#DC2626', borderRadius: 2 }} />}
-        {s.amber > 0 && <div style={{ flex: s.amber, background: '#D97706' }} />}
-        {s.green > 0 && <div style={{ flex: s.green, background: '#16A34A' }} />}
-        {s.hold  > 0 && <div style={{ flex: s.hold,  background: '#6B7280', borderRadius: '0 2px 2px 0' }} />}
-      </div>
-    </div>
-  )
-}
-
-function SubStageChart({ stages }: { stages: SubStage[] }) {
-  const SMAX = Math.max(...stages.map(s => s.red + s.amber + s.green + s.hold), 1)
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 70, paddingTop: 4 }}>
-      {stages.map((s, i) => {
-        const tot = s.red + s.amber + s.green + s.hold
-        const h   = Math.round(66 * tot / SMAX)
-        return (
-          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, width: '100%', justifyContent: 'flex-end', flex: 1 }}>
-              {s.red   > 0 && <div style={{ width: '100%', height: Math.round(h * s.red   / tot), background: '#DC2626', borderRadius: '2px 2px 0 0', minHeight: 2 }} />}
-              {s.amber > 0 && <div style={{ width: '100%', height: Math.round(h * s.amber / tot), background: '#D97706', minHeight: 2 }} />}
-              {s.green > 0 && <div style={{ width: '100%', height: Math.round(h * s.green / tot), background: '#16A34A', minHeight: 2 }} />}
-              {s.hold  > 0 && <div style={{ width: '100%', height: Math.round(h * s.hold  / tot), background: '#6B7280', minHeight: 2 }} />}
-            </div>
-            <div style={{ fontSize: 8, color: '#6B7280', textAlign: 'center', lineHeight: 1.2 }}>{s.label}</div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function th(label: string) {
-  return <th key={label} style={{ fontSize: 9, fontWeight: 500, color: '#6B7280', textAlign: 'left', padding: '4px 5px', borderBottom: `0.5px solid ${BORDER}`, whiteSpace: 'nowrap' }}>{label}</th>
+  return (
+    <th key={label} style={{
+      fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px',
+      color: INK3, textAlign: 'left', padding: '6px 7px',
+      borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap',
+    }}>{label}</th>
+  )
 }
 function td(children: React.ReactNode, extra?: React.CSSProperties) {
-  return <td style={{ padding: '5px 5px', borderBottom: `0.5px solid ${BORDER}`, fontSize: 10, verticalAlign: 'middle', ...extra }}>{children}</td>
+  return (
+    <td style={{ padding: '8px 7px', borderBottom: `1px solid ${BORDER}`, color: INK, verticalAlign: 'middle', ...extra }}>
+      {children}
+    </td>
+  )
 }
 function Tag({ rag, label }: { rag: string; label: string }) {
-  return <span style={{ fontSize: 8, fontWeight: 500, padding: '2px 5px', borderRadius: 99, whiteSpace: 'nowrap', background: RAG_BG[rag], color: RAG_COLOR[rag] }}>{label}</span>
-}
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px', ...style }}>{children}</div>
-}
-function CardTitle({ icon, title, right }: { icon: string; title: string; right?: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 11, fontWeight: 500, color: '#111', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <i className={`ti ${icon}`} style={{ fontSize: 14, color: NAVY }} />
+    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap',
+      background: RAG_BG[rag], color: RAG_TX[rag] }}>{label}</span>
+  )
+}
+function Card({ children, style, hero, className }: { children: React.ReactNode; style?: React.CSSProperties; hero?: boolean; className?: string }) {
+  return (
+    <div className={className} style={{
+      background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: '13px 16px',
+      boxShadow: hero ? '0 6px 22px rgba(255,118,4,.12)' : '0 1px 2px rgba(42,47,105,.05)',
+      borderTop: hero ? `3px solid ${ORANGE}` : undefined,
+      minWidth: 0, overflow: 'hidden', ...style,
+    }}>{children}</div>
+  )
+}
+function CardTitle({ icon, title, right }: { icon: string; title: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 14, fontWeight: 600, color: INK, marginBottom: 9,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <i className={`ti ${icon}`} style={{ fontSize: 18, color: NAVY }} />
         {title}
       </div>
       {right}
     </div>
   )
 }
+function ViewAll({ href, label = 'View all ↗' }: { href: string; label?: string }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer"
+      style={{ fontSize: 12, color: NAVY, textDecoration: 'none', fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer' }}>
+      {label}
+    </a>
+  )
+}
+function ChBadge({ label, rag }: { label: string; rag: 'red' | 'amber' | 'green' }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 99,
+      background: RAG_BG[rag], color: RAG_TX[rag] }}>{label}</span>
+  )
+}
 
+// ── Sub-stage chart ───────────────────────────────────────────────────────────
+function SubStageChart({ stages }: { stages: SubStage[] }) {
+  const SMAX = Math.max(...stages.map(s => s.red + s.amber + s.green + s.hold), 1)
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9, height: 128, paddingTop: 4 }}>
+        {stages.map((s, i) => {
+          const tot = s.red + s.amber + s.green + s.hold
+          return (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, flex: 1, height: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column-reverse', width: '100%', flex: 1, gap: 2, minHeight: 0 }}>
+                {s.green > 0 && <div style={{ width: '100%', height: `${(s.green / SMAX) * 100}%`, background: GREEN,      borderRadius: 3, minHeight: 3 }} />}
+                {s.hold  > 0 && <div style={{ width: '100%', height: `${(s.hold  / SMAX) * 100}%`, background: '#6B7280',  borderRadius: 3, minHeight: 3 }} />}
+                {s.amber > 0 && <div style={{ width: '100%', height: `${(s.amber / SMAX) * 100}%`, background: AMBER,      borderRadius: 3, minHeight: 3 }} />}
+                {s.red   > 0 && <div style={{ width: '100%', height: `${(s.red   / SMAX) * 100}%`, background: RED,        borderRadius: 3, minHeight: 3 }} />}
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>{tot}</div>
+              <div style={{ fontSize: 11, color: INK2, textAlign: 'center', lineHeight: 1.15, fontWeight: 600 }}>{s.label}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 11, justifyContent: 'center', marginTop: 9, fontSize: 11, color: INK2 }}>
+        {[['Red', RED], ['Amber', AMBER], ['Green', GREEN], ['Hold', '#6B7280']].map(([l, c]) => (
+          <span key={l}>
+            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: c, verticalAlign: -1, marginRight: 3 }} />
+            {l}
+          </span>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// ── Pipeline tile ─────────────────────────────────────────────────────────────
+function PipelineTile({ s }: { s: PipelineStage }) {
+  const total = s.red + s.amber + s.green + s.hold
+  return (
+    <div className="ptile" style={{ background: s.color || NAVY }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(157deg,rgba(255,255,255,.14),rgba(255,255,255,0) 46%)', pointerEvents: 'none' }} />
+      <div style={{ fontSize: 11, fontWeight: 700, opacity: .65, letterSpacing: '.8px' }}>{s.short}</div>
+      <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, margin: '3px 0 8px', minHeight: 28 }}>{s.label}</div>
+      <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 30, fontWeight: 700, lineHeight: 1 }}>{total}</div>
+      <div style={{ display: 'flex', gap: 2, height: 4, marginTop: 8, borderRadius: 99, overflow: 'hidden' }}>
+        {s.red   > 0 && <span style={{ flex: s.red,   background: RAG_HEX.red   }} />}
+        {s.amber > 0 && <span style={{ flex: s.amber, background: RAG_HEX.amber }} />}
+        {s.green > 0 && <span style={{ flex: s.green, background: RAG_HEX.green }} />}
+        {s.hold  > 0 && <span style={{ flex: s.hold,  background: '#6B7280'     }} />}
+        {total === 0  && <span style={{ flex: 1, background: 'rgba(255,255,255,.25)' }} />}
+      </div>
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function ManufacturingHeadHomepage() {
-  const router      = useRouter()
-  const switcherRef = useRef<HTMLDivElement>(null)
+  const router        = useRouter()
+  const notifRef      = useRef<HTMLDivElement>(null)
+  const switcherRef   = useRef<HTMLDivElement>(null)
+  const [showNotif,    setShowNotif]    = useState(false)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const { user, isLoading: userLoading } = useCurrentUser()
-  const { data, isLoading, isError } = useManufacturingHomepage()
-
-  const backOptions = BACK_OPTIONS[user?.roleSlug ?? ''] ?? []
+  const { data, isLoading, isError }     = useManufacturingHomepage()
+  const switcherOptions = SWITCHER_OPTIONS[user?.roleSlug ?? ''] ?? []
 
   useEffect(() => {
-    function h(e: MouseEvent) {
+    const h = (e: MouseEvent) => {
+      if (notifRef.current    && !notifRef.current.contains(e.target as Node))    setShowNotif(false)
       if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) setShowSwitcher(false)
     }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  if (isLoading || userLoading) return <div style={{ padding: 40, fontSize: 13, color: '#6B7280' }}>Loading dashboard…</div>
+  if (isLoading || userLoading) return <div style={{ padding: 40, fontSize: 13, color: INK3 }}>Loading dashboard…</div>
   if (isError || !data) return <div style={{ padding: 40, fontSize: 13, color: RED }}>Unable to load dashboard. Check middleware connection.</div>
 
-  const erpBase = data.erpBaseUrl.replace(/\/$/, '')
-  const erpUrl  = (path: string) => `${erpBase}/app/${path}`
+  const erpBase  = data.erpBaseUrl.replace(/\/$/, '')
+  const erpUrl   = (path: string) => `${erpBase}/app/${path}`
   const syncTime = new Date(data.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  const { kpis, pipelineStages, delayedWOs, mfgSubStages, materialShortages, attendance, downtime, completingThisWeek, qualityRejections } = data
 
-  const { kpis, pipelineStages, delayedWOs, mfgSubStages, materialShortages, attendance, downtime, completingThisWeek } = data
+  // KPI definitions
+  type KpiKey = 'red' | 'amber' | 'green' | 'hold'
+  const KPI_DEFS = [
+    { cls: '',        lbl: 'Active work orders', val: kpis.activeWOs.value,      sub: kpis.activeWOs.sub,      rag: true  as const },
+    { cls: 'k-green', lbl: 'Completed today',    val: kpis.completedToday.value, sub: kpis.completedToday.sub, rag: false as const },
+    { cls: 'k-red',   lbl: 'Delayed',            val: kpis.delayedRed.value,     sub: kpis.delayedRed.sub,     rag: false as const },
+    { cls: 'k-amber', lbl: 'At risk',            val: kpis.atRiskAmber.value,    sub: kpis.atRiskAmber.sub,    rag: false as const },
+    { cls: 'k-hold',  lbl: 'On hold',            val: kpis.onHold.value,         sub: kpis.onHold.sub,         rag: false as const },
+  ]
+  const KPI_TOP: Record<string, string> = { '': '#C7C9DD', 'k-green': '#74C495', 'k-red': '#E07A7A', 'k-amber': '#E0A857', 'k-hold': '#A6ABBC' }
 
-  const KPI_TILES = [
-    { label: 'Active work orders', value: kpis.activeWOs.value,      sub: kpis.activeWOs.sub,      accent: NAVY,  valueColor: '#111'  },
-    { label: 'Completed today',    value: kpis.completedToday.value,  sub: kpis.completedToday.sub, accent: GREEN, valueColor: '#111'  },
-    { label: 'Delayed — Red',      value: kpis.delayedRed.value,      sub: kpis.delayedRed.sub,     accent: RED,   valueColor: RED     },
-    { label: 'At risk — Amber',    value: kpis.atRiskAmber.value,     sub: kpis.atRiskAmber.sub,    accent: AMBER, valueColor: AMBER   },
-    { label: 'On hold',            value: kpis.onHold.value,          sub: kpis.onHold.sub,         accent: '#888780', valueColor: '#888780' },
+  // Notifications derived from data
+  const notifItems = [
+    ...delayedWOs.filter(w => w.rag === 'red' && w.daysOver >= 7).map(w => ({
+      icon: 'ti-alert-triangle', text: `${w.wo} overdue ${w.daysOver} days`, sub: w.customer,
+    })),
+    ...(materialShortages.filter(s => s.rag === 'red').length > 0 ? [{
+      icon: 'ti-package-off',
+      text: `${materialShortages.filter(s => s.rag === 'red').length} WOs blocked on material`,
+      sub: materialShortages.filter(s => s.rag === 'red').map(s => s.item).slice(0, 2).join(', '),
+    }] : []),
   ]
 
   return (
-    <div style={{ fontFamily: "Arial,'Helvetica Neue',Helvetica,sans-serif", background: '#F3F4F6', padding: 16, minHeight: '100vh' }}>
-      <div style={{ maxWidth: 1320, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <>
+      <style>{`
+        .mfg-pg { font-family: Arial,'Arial Narrow',Helvetica,sans-serif; background: ${BG}; padding: 12px; min-height: 100vh; color: ${INK}; -webkit-font-smoothing: antialiased; }
+        .mfg-inner { max-width: 1400px; margin: 0 auto; }
+        .mfg-kpi-strip { display: grid; grid-template-columns: repeat(5,1fr); gap: 9px; position: relative; z-index: 1; }
+        .mfg-pipe { display: grid; grid-template-columns: repeat(9,1fr); gap: 9px; }
+        .mfg-row1 { display: grid; grid-template-columns: 1.2fr 1.6fr; gap: 11px; align-items: start; margin-bottom: 11px; }
+        .mfg-sub2 { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; align-items: start; }
+        .mfg-row2 { display: grid; grid-template-columns: 1.4fr 1fr max-content; gap: 11px; align-items: stretch; }
+        .ptile { border-radius: 11px; padding: 11px 8px 10px; cursor: pointer; color: #fff; position: relative; overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,.14); transition: transform .14s ease, box-shadow .14s ease; }
+        .ptile:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.24); }
+        .mfg-card { transition: box-shadow .16s ease, border-color .16s ease; }
+        .mfg-card:hover { box-shadow: 0 8px 22px rgba(42,47,105,.10) !important; border-color: #8F92B5 !important; }
+        .mfg-card.hero:hover { box-shadow: 0 10px 30px rgba(255,118,4,.16) !important; }
+        .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        .tbl th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: ${INK3};
+          text-align: left; padding: 6px 7px; border-bottom: 1px solid ${BORDER}; white-space: nowrap; }
+        .tbl td { padding: 8px 7px; border-bottom: 1px solid ${BORDER}; color: ${INK}; vertical-align: middle; }
+        .tbl tr:last-child td { border-bottom: none; }
+        .tbl tbody tr { cursor: pointer; }
+        .tbl tbody tr:hover td { background: ${NAVY_TINT}; }
+        .tbl tbody tr.lb-r td:first-child { box-shadow: inset 3px 0 0 ${RED}; }
+        .tbl tbody tr.lb-a td:first-child { box-shadow: inset 3px 0 0 ${AMBER}; }
+        .tbl tbody tr.lb-g td:first-child { box-shadow: inset 3px 0 0 ${GREEN}; }
+        .tbl tbody tr.lb-h td:first-child { box-shadow: inset 3px 0 0 #6B7280; }
+        .tbl-wrap { overflow-x: auto; }
+        .action-btn { font-size: 12.5px; padding: 5px 12px; border-radius: 9px; border: 1px solid ${BORDER};
+          background: #fff; color: ${INK}; cursor: pointer; text-align: left; display: inline-flex;
+          align-items: center; gap: 7px; text-decoration: none; width: 100%;
+          transition: background .12s, border-color .12s, box-shadow .12s; }
+        .action-btn i { font-size: 18px; color: ${NAVY}; flex-shrink: 0; }
+        .action-btn:hover { background: ${NAVY_TINT}; border-color: ${NAVY}; box-shadow: 0 3px 10px rgba(42,47,105,.10); }
+        .action-btn.primary { background: linear-gradient(135deg,#FF8A2B 0%,#FF7604 100%);
+          border-color: #FF7604; color: #fff; box-shadow: 0 3px 10px rgba(255,118,4,.30); }
+        .action-btn.primary i { color: #fff; }
+        .action-btn.primary:hover { background: linear-gradient(135deg,#FF7E18 0%,#E96C00 100%); border-color: #E96C00; }
+        .kpi-item { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.13);
+          border-radius: 11px; padding: 9px 13px 7px; cursor: pointer;
+          transition: transform .14s ease, border-color .14s ease, background .14s ease; backdrop-filter: blur(2px); }
+        .kpi-item:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.34); background: rgba(255,255,255,.12); }
+        @media (max-width: 1100px) {
+          .mfg-pipe { grid-template-columns: repeat(5,1fr); }
+        }
+        @media (max-width: 760px) {
+          .mfg-kpi-strip { grid-template-columns: repeat(2,1fr); }
+          .mfg-row1, .mfg-sub2, .mfg-row2 { grid-template-columns: 1fr; }
+          .mfg-pipe { grid-template-columns: repeat(3,1fr); }
+        }
+      `}</style>
 
-        {/* Topbar */}
-        <div style={{ background: NAVY, borderRadius: 10, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 500, color: '#fff', display: 'flex', alignItems: 'center', gap: 7 }}>
-              <i className="ti ti-building-factory-2" />
-              &nbsp;Good morning, {user?.fullName ?? '…'}
+      <div className="mfg-pg">
+        <div className="mfg-inner" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+
+          {/* ── Topbar ── */}
+          <div style={{
+            background: NAVY, borderBottom: `2px solid ${ORANGE}`, borderRadius: 12,
+            padding: '13px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 12, flexWrap: 'wrap', boxShadow: '0 6px 20px rgba(27,31,71,.22)',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+              <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 19, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 7 }}>
+                <i className="ti ti-building-factory-2" style={{ color: '#9AA0D8' }} />
+                Good morning, {user?.fullName ?? '…'}
+              </div>
+              <div style={{ fontSize: 13, color: '#B9BEE0' }}>
+                {user?.role ?? 'Manufacturing Head'}&nbsp;|&nbsp;
+                {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                &nbsp;|&nbsp;Synced {syncTime}
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: '#A0BDD8', marginTop: 2 }}>
-              {user?.role ?? 'Manufacturing Head'} &nbsp;|&nbsp;
-              {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              &nbsp;|&nbsp; Auto-refresh every 5 min
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 10, fontWeight: 500, padding: '3px 10px', borderRadius: 99, background: 'rgba(255,255,255,.15)', color: '#fff' }}>
-              <i className="ti ti-sun" /> Morning shift &nbsp;07:00–15:30
-            </span>
-            <span style={{ fontSize: 10, color: '#A0BDD8', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <i className="ti ti-refresh" /> Synced {syncTime}
-            </span>
-            {/* Dashboard switcher — for any strategic role visiting this page */}
-            {backOptions.length > 0 && (
-              <div style={{ position: 'relative' }} ref={switcherRef}>
-                <button onClick={() => setShowSwitcher(v => !v)}
-                  style={{ fontSize: 11, color: '#fff', background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <i className="ti ti-layout-grid" style={{ fontSize: 13 }} /> Switch dashboard
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative' }}>
+              <span style={{ background: ORANGE, color: '#fff', fontSize: 12.5, fontWeight: 700, padding: '5px 13px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <i className="ti ti-sun" /> Morning · 07:00–15:30
+              </span>
+              <span style={{ fontSize: 12.5, color: '#D6D8EE', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 99, background: '#46d17f', display: 'inline-block' }} />
+                Auto-refresh 5 min
+              </span>
+
+              {/* Dashboard switcher */}
+              {switcherOptions.length > 0 && (
+                <div style={{ position: 'relative' }} ref={switcherRef}>
+                  <button onClick={() => setShowSwitcher(v => !v)}
+                    style={{ fontSize: 11, color: '#fff', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <i className="ti ti-layout-grid" style={{ fontSize: 13 }} />
+                    Switch dashboard
+                  </button>
+                  {showSwitcher && (
+                    <div style={{ position: 'absolute', top: 34, right: 0, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(42,47,105,.15)', zIndex: 50, minWidth: 190, padding: 6 }}>
+                      {switcherOptions.map(o => (
+                        <button key={o.slug} onClick={() => router.push(`/home/${o.slug}`)}
+                          style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 11.5, padding: '8px 11px', borderRadius: 7, border: 'none', background: 'none', color: INK, cursor: 'pointer' }}
+                          onMouseOver={e => (e.currentTarget.style.background = NAVY_TINT)}
+                          onMouseOut={e => (e.currentTarget.style.background = 'none')}>
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Logout */}
+              <button
+                onClick={() => {
+                  localStorage.removeItem('proman_token')
+                  localStorage.removeItem('proman_user')
+                  document.cookie = 'proman_role=; path=/; max-age=0'
+                  router.push('/')
+                }}
+                title="Logout"
+                style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                onMouseOver={e => (e.currentTarget.style.background = 'rgba(255,80,80,.25)')}
+                onMouseOut={e => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}>
+                <i className="ti ti-logout" style={{ fontSize: 14 }} />
+                <span>Logout</span>
+              </button>
+
+              {/* Bell */}
+              <div style={{ position: 'relative' }} ref={notifRef}>
+                <button onClick={() => setShowNotif(v => !v)}
+                  style={{ position: 'relative', fontSize: 11, color: '#fff', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/>
+                  </svg>
+                  {notifItems.length > 0 && (
+                    <span style={{ position: 'absolute', top: -6, right: -6, background: '#EF4444', color: '#fff', fontSize: 9, fontWeight: 700, minWidth: 15, height: 15, borderRadius: 99, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
+                      {notifItems.length}
+                    </span>
+                  )}
                 </button>
-                {showSwitcher && (
-                  <div style={{ position: 'absolute', top: 34, right: 0, background: '#fff', border: '1px solid #DDDDE8', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.15)', zIndex: 50, minWidth: 170, padding: 6 }}>
-                    {backOptions.map(o => (
-                      <button key={o.slug} onClick={() => router.push(`/home/${o.slug}`)}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 11.5, padding: '8px 11px', borderRadius: 7, border: 'none', background: 'none', color: '#2A2F69', cursor: 'pointer' }}
-                        onMouseOver={e => (e.currentTarget.style.background = '#EAEAF0')}
-                        onMouseOut={e => (e.currentTarget.style.background = 'none')}>
-                        {o.label}
-                      </button>
-                    ))}
+                {showNotif && (
+                  <div style={{ position: 'absolute', right: 0, top: 34, width: 300, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: '0 12px 30px rgba(15,34,64,.18)', padding: 8, zIndex: 50 }}>
+                    <h4 style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: INK3, padding: '4px 6px 6px' }}>Needs attention</h4>
+                    {notifItems.length === 0
+                      ? <div style={{ padding: '7px 6px', fontSize: 11, color: INK3 }}>No active alerts</div>
+                      : notifItems.map((n, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 6px', borderRadius: 7, fontSize: 11, color: INK, cursor: 'pointer' }}
+                          onMouseOver={e => (e.currentTarget.style.background = NAVY_TINT)}
+                          onMouseOut={e => (e.currentTarget.style.background = '')}>
+                          <i className={`ti ${n.icon}`} style={{ fontSize: 15, color: RED, flexShrink: 0, marginTop: 1 }} />
+                          <div>{n.text}<small style={{ display: 'block', color: INK2, fontSize: 10 }}>{n.sub}</small></div>
+                        </div>
+                      ))
+                    }
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Alert banner */}
-        {data.alert && (
-          <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#991B1B' }}>
-            <i className="ti ti-alert-triangle" style={{ fontSize: 16, flexShrink: 0 }} />
-            <strong>{data.alert}</strong>
-          </div>
-        )}
-
-        {/* KPI strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
-          {KPI_TILES.map((k, i) => (
-            <div key={i} style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderLeft: `4px solid ${k.accent}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}>
-              <div style={{ fontSize: 10, color: '#6B7280', marginBottom: 3 }}>{k.label}</div>
-              <div style={{ fontSize: 26, fontWeight: 500, lineHeight: 1, color: k.valueColor }}>{k.value}</div>
-              <div style={{ fontSize: 9, color: '#6B7280', marginTop: 3 }}>{k.sub}</div>
             </div>
-          ))}
-        </div>
-
-        {/* Pipeline stage strip */}
-        <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: '#111', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <i className="ti ti-layout-kanban" style={{ color: NAVY }} /> Pipeline stage summary — click to open
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9,1fr)', gap: 6 }}>
-            {pipelineStages.map((s, i) => <PipelineTile key={i} s={s} />)}
-          </div>
-        </div>
 
-        {/* Row 1: Delayed WOs | Sub-stages chart | Material shortages */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 10 }}>
-          <Card>
-            <CardTitle icon="ti-alert-circle" title="Delayed work orders"
-              right={<a href={erpUrl('work-order')} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: NAVY, textDecoration: 'none' }}>View all ↗</a>} />
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['WO No.','Customer','Stage','Status',''].map(h => th(h))}</tr></thead>
-              <tbody>
-                {delayedWOs.map((r, i) => (
-                  <tr key={i} style={{ borderLeft: `3px solid ${r.rag === 'red' ? '#A32D2D' : '#854F0B'}` }}>
-                    {td(r.wo,       { color: '#1A4A8A', fontWeight: 500 })}
-                    {td(r.customer, { maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
-                    {td(r.stage,    { color: '#6B7280' })}
-                    {td(<Tag rag={r.rag} label={r.label} />)}
-                    {td(<button style={{ fontSize: 9, padding: '2px 6px', borderRadius: 99, border: `0.5px solid ${NAVY}`, color: NAVY, background: 'none', cursor: 'pointer' }}>Detail</button>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+          {/* ── Alert banner ── */}
+          {data.alert && (
+            <div style={{ background: RED_BG, border: `1px solid #E4B4B4`, borderRadius: 10, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 14, color: RED }}>
+              <i className="ti ti-alert-triangle" style={{ fontSize: 20, flexShrink: 0 }} />
+              <span><strong>{data.alert}</strong></span>
+              <button style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 600, border: `1px solid currentColor`, background: 'none', color: 'inherit', borderRadius: 7, padding: '3px 10px', cursor: 'pointer' }}>Escalate</button>
+            </div>
+          )}
 
-          <Card>
-            <CardTitle icon="ti-chart-bar" title="Mfg sub-stages (S6)" />
-            <SubStageChart stages={mfgSubStages} />
-          </Card>
-
-          <Card>
-            <CardTitle icon="ti-package-off" title="Material shortages"
-              right={<span style={{ fontSize: 9, background: '#FCEBEB', color: RED, padding: '2px 6px', borderRadius: 99 }}>{materialShortages.filter(s => s.rag === 'red').length} blocking</span>} />
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['WO','Item','Short','ETA'].map(h => th(h))}</tr></thead>
-              <tbody>
-                {materialShortages.map((r, i) => (
-                  <tr key={i} style={{ borderLeft: `3px solid ${RAG_COLOR[r.rag]}` }}>
-                    {td(r.wo,    { color: '#1A4A8A', fontWeight: 500 })}
-                    {td(r.item)}
-                    {td(r.short, { color: r.rag === 'red' ? RED : AMBER })}
-                    {td(r.eta,   { color: r.rag === 'red' ? AMBER : '#111' })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </div>
-
-        {/* Row 2: Attendance | Downtime */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <Card>
-            <CardTitle icon="ti-users" title="Workforce attendance — today" />
-            <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 10 }}>
-              {[
-                { val: attendance.present, label: 'Present', color: GREEN  },
-                { val: attendance.absent,  label: 'Absent',  color: RED    },
-                { val: attendance.onLeave, label: 'On leave', color: AMBER },
-                { val: `${attendance.pct}%`, label: 'Attendance %', color: '#111' },
-              ].map((a, i) => (
-                <div key={i} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 28, fontWeight: 500, color: a.color }}>{a.val}</div>
-                  <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>{a.label}</div>
+          {/* ── KPI band ── */}
+          <div style={{ background: 'linear-gradient(135deg,#2A2F69 0%,#242859 55%,#1b1f47 100%)', borderRadius: 13, padding: '12px 14px 10px', position: 'relative', overflow: 'hidden', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
+            <div style={{ position: 'absolute', top: '-45%', right: '-6%', width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,118,4,.12),transparent 68%)', pointerEvents: 'none' }} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9, position: 'relative', zIndex: 1, flexWrap: 'wrap', gap: 6 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: '#C7CBEC', textTransform: 'uppercase', letterSpacing: '.4px' }}>Shop-floor snapshot</span>
+              <span style={{ fontSize: 12, color: '#AAB0DC' }}>{kpis.activeWOs.value} active work orders · live to 5 min</span>
+            </div>
+            <div className="mfg-kpi-strip">
+              {KPI_DEFS.map((k, i) => (
+                <div key={i} className="kpi-item" style={{ borderTop: `3px solid ${KPI_TOP[k.cls]}` }}>
+                  <div style={{ fontSize: 12.5, color: '#C7CBEC', marginBottom: 5 }}>{k.lbl}</div>
+                  <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 31, fontWeight: 700, color: '#fff', lineHeight: 1 }}>{k.val}</div>
+                  <div style={{ fontSize: 12, color: '#AAB0DC', marginTop: 5 }}>{k.sub}</div>
+                  {k.rag && (
+                    <div style={{ display: 'flex', height: 4, borderRadius: 99, overflow: 'hidden', marginTop: 5, gap: 1 }}>
+                      {(['red','amber','green','hold'] as const).map(r =>
+                        (kpis.activeWOs as Record<KpiKey, number>)[r] > 0
+                          ? <span key={r} style={{ flex: (kpis.activeWOs as Record<KpiKey, number>)[r], background: RAG_HEX[r] }} />
+                          : null
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {attendance.byDept.map((d, i) => {
-                const pct = Math.round(100 * d.present / d.total)
-                const color = pct >= 90 ? GREEN : pct >= 80 ? AMBER : RED
-                return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 9, color: '#6B7280', width: 80, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.dept}</span>
-                    <div style={{ flex: 1, height: 8, background: BORDER, borderRadius: 99, overflow: 'hidden' }}>
-                      <div style={{ height: 8, borderRadius: 99, background: color, width: `${pct}%` }} />
-                    </div>
-                    <span style={{ fontSize: 9, color: '#6B7280', width: 26, textAlign: 'right', flexShrink: 0 }}>{d.present}/{d.total}</span>
-                  </div>
-                )
-              })}
+          </div>
+
+          {/* ── Operations pipeline ── */}
+          <Card className="mfg-card">
+            <CardTitle icon="ti-layout-kanban" title="Operations pipeline · S1 to S9"
+              right={<ViewAll href={erpUrl('work-order/view/kanban')} label="Open pipeline ↗" />} />
+            <div className="mfg-pipe">
+              {pipelineStages.map((s, i) => <PipelineTile key={i} s={s} />)}
+              {pipelineStages.length === 0 && (
+                <div style={{ gridColumn: '1/-1', fontSize: 12, color: INK3, textAlign: 'center', padding: '16px 0' }}>
+                  Pipeline stage data not yet configured — ask ERP developer to populate Order Pipeline tables.
+                </div>
+              )}
             </div>
           </Card>
 
-          <Card>
-            <CardTitle icon="ti-tool" title="Machine downtime — today"
-              right={<span style={{ fontSize: 9, background: '#FEF3C7', color: AMBER, padding: '2px 6px', borderRadius: 99 }}>{data.downtime.totalHrs} hrs total</span>} />
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['Machine','Duration','Reason','Status'].map(h => th(h))}</tr></thead>
-              <tbody>
-                {downtime.machines.map((m, i) => (
-                  <tr key={i}>
-                    {td(m.machine)}
-                    {td(`${m.hrs} hr${m.hrs !== 1 ? 's' : ''}`)}
-                    {td(m.reason, { color: '#6B7280' })}
-                    {td(<Tag rag={m.status === 'resolved' ? 'green' : 'amber'} label={m.status === 'resolved' ? 'Resolved' : 'Open'} />)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </div>
-
-        {/* Row 3: Completing this week | Quick actions */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
-          <Card>
-            <CardTitle icon="ti-calendar" title="WOs completing this week"
-              right={<a href={erpUrl('work-order')} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: NAVY, textDecoration: 'none' }}>Risk analysis ↗</a>} />
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['WO No.','Customer','Product','Due','Stage','Completion'].map(h => th(h))}</tr></thead>
-              <tbody>
-                {completingThisWeek.map((r, i) => (
-                  <tr key={i} style={{ borderLeft: `3px solid ${RAG_COLOR[r.rag]}` }}>
-                    {td(r.wo,       { color: '#1A4A8A', fontWeight: 500 })}
-                    {td(r.customer)}
-                    {td(r.product)}
-                    {td(r.due, { color: r.rag === 'red' ? RED : r.rag === 'amber' ? AMBER : '#111' })}
-                    {td(r.stage)}
-                    {td(
-                      <Tag rag={r.rag}
-                        label={r.completion === 100 ? 'On track' : r.rag === 'red' ? `${r.completion}% — ${r.completion < 70 ? 'Overdue' : 'At risk'}` : `${r.completion}% — Watch`} />
+          {/* ── Row 1: Delayed | right stack ── */}
+          <div className="mfg-row1">
+            <Card hero className="mfg-card hero">
+              <CardTitle icon="ti-alert-circle"
+                title={<>Delayed work orders <span style={{ fontSize: 11, color: INK3, fontWeight: 400 }}>red first</span></>}
+                right={<ViewAll href={erpUrl('work-order')} />} />
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead><tr><th>WO No.</th><th>Customer</th><th>Stage</th><th>Days over</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {delayedWOs.map((r, i) => (
+                      <tr key={i} className={`lb-${r.rag === 'green' ? 'g' : r.rag}`}>
+                        {td(r.wo, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
+                        {td(r.customer, { maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK2 })}
+                        {td(r.stage, { color: INK2 })}
+                        {td(r.daysOver > 0 ? `${r.daysOver}d` : '—')}
+                        {td(<Tag rag={r.rag} label={r.label} />)}
+                      </tr>
+                    ))}
+                    {delayedWOs.length === 0 && (
+                      <tr><td colSpan={5} style={{ padding: '12px 7px', fontSize: 12, color: INK3, textAlign: 'center' }}>No delayed work orders</td></tr>
                     )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
 
-          <Card>
-            <CardTitle icon="ti-bolt" title="Quick actions" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {QUICK_ACTIONS.map(a => (
-                <a key={a.label} href={erpUrl(a.path)} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, padding: '7px 8px', borderRadius: 8, border: `0.5px solid ${BORDER}`, background: '#fff', color: '#111', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', transition: 'background .12s' }}
-                  onMouseOver={e => (e.currentTarget.style.background = '#F3F4F6')}
-                  onMouseOut={e => (e.currentTarget.style.background = '#fff')}>
-                  <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: NAVY, flexShrink: 0 }} />
-                  {a.label}
-                </a>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 0 }}>
+              <div className="mfg-sub2">
+                <Card className="mfg-card">
+                  <CardTitle icon="ti-chart-bar" title="Mfg sub-stages (S6)" />
+                  <SubStageChart stages={mfgSubStages} />
+                </Card>
+                <Card className="mfg-card">
+                  <CardTitle icon="ti-package-off" title="Material shortages"
+                    right={<ChBadge label={`${materialShortages.filter(s => s.rag === 'red').length} blocking`} rag="red" />} />
+                  <div className="tbl-wrap">
+                    <table className="tbl">
+                      <thead><tr><th>WO</th><th>Item</th><th>Short</th><th>ETA</th></tr></thead>
+                      <tbody>
+                        {materialShortages.slice(0, 5).map((r, i) => (
+                          <tr key={i} className={`lb-${r.rag}`}>
+                            {td(r.wo, { color: NAVY, fontWeight: 600 })}
+                            {td(r.item, { color: INK2, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                            {td(r.short, { color: RAG_TX[r.rag], fontWeight: 700 })}
+                            {td(r.eta, { color: INK2 })}
+                          </tr>
+                        ))}
+                        {materialShortages.length === 0 && (
+                          <tr><td colSpan={4} style={{ padding: '12px 7px', fontSize: 12, color: INK3, textAlign: 'center' }}>No shortages</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+
+              <Card className="mfg-card">
+                <CardTitle icon="ti-tool" title="Machine downtime — today"
+                  right={<ChBadge label={`${downtime.totalHrs} hrs total`} rag={downtime.totalHrs > 4 ? 'red' : downtime.totalHrs > 2 ? 'amber' : 'green'} />} />
+                <div className="tbl-wrap">
+                  <table className="tbl">
+                    <thead><tr><th>Machine</th><th>Duration</th><th>Reason</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {downtime.machines.map((m, i) => (
+                        <tr key={i}>
+                          {td(m.machine)}
+                          {td(`${m.hrs} hr${m.hrs !== 1 ? 's' : ''}`)}
+                          {td(m.reason, { color: INK2 })}
+                          {td(<Tag rag={m.status === 'resolved' ? 'green' : 'amber'} label={m.status === 'resolved' ? 'Resolved' : 'Open'} />)}
+                        </tr>
+                      ))}
+                      {downtime.machines.length === 0 && (
+                        <tr><td colSpan={4} style={{ padding: '12px 7px', fontSize: 12, color: INK3, textAlign: 'center' }}>No downtime recorded today</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             </div>
-          </Card>
-        </div>
+          </div>
 
+          {/* ── Row 2: Completing | Quality | Quick actions ── */}
+          <div className="mfg-row2">
+            <Card className="mfg-card">
+              <CardTitle icon="ti-calendar-stats" title="WOs completing this week"
+                right={<ViewAll href={erpUrl('work-order')} label="Risk analysis ↗" />} />
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead><tr><th>WO No.</th><th>Customer</th><th>Product</th><th>Due</th><th>Stage</th><th>Completion</th></tr></thead>
+                  <tbody>
+                    {completingThisWeek.map((r, i) => (
+                      <tr key={i} className={`lb-${r.rag}`}>
+                        {td(r.wo, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
+                        {td(r.customer, { color: INK2, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                        {td(r.product, { color: INK2 })}
+                        {td(r.due, { color: r.rag === 'red' ? RED : INK, fontWeight: r.rag === 'red' ? 700 : 400 })}
+                        {td(r.stage, { color: INK2 })}
+                        {td(<Tag rag={r.rag} label={r.rag === 'green' ? `${r.completion}% · on track` : r.rag === 'red' ? `${r.completion}% · overdue` : `${r.completion}% · watch`} />)}
+                      </tr>
+                    ))}
+                    {completingThisWeek.length === 0 && (
+                      <tr><td colSpan={6} style={{ padding: '12px 7px', fontSize: 12, color: INK3, textAlign: 'center' }}>No WOs due this week</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <Card className="mfg-card" style={{ minWidth: 0 }}>
+              <CardTitle icon="ti-shield-check" title="Quality rejections / rework — today"
+                right={<ViewAll href={erpUrl('quality-inspection?status=Rejected')} label="Inspection log ↗" />} />
+              <div style={{ display: 'flex', gap: 10, marginBottom: 11 }}>
+                <div style={{ flex: 1, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 30, fontWeight: 700, lineHeight: 1, color: RED }}>{qualityRejections.rejections}</div>
+                  <div style={{ fontSize: 12, color: INK2, marginTop: 4 }}>Rejections today</div>
+                </div>
+                <div style={{ flex: 1, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 30, fontWeight: 700, lineHeight: 1, color: AMBER }}>{qualityRejections.rework}</div>
+                  <div style={{ fontSize: 12, color: INK2, marginTop: 4 }}>Rework raised</div>
+                </div>
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead><tr><th>WO No.</th><th>Product</th><th>Stage</th><th>Defect</th><th>Disposition</th></tr></thead>
+                  <tbody>
+                    {qualityRejections.items.map((r, i) => (
+                      <tr key={i} className={`lb-${r.rag}`}>
+                        {td(r.wo, { color: NAVY, fontWeight: 600 })}
+                        {td(r.product, { color: INK2 })}
+                        {td(r.stage, { color: INK2 })}
+                        {td(r.defect)}
+                        {td(<Tag rag={r.rag} label={r.disposition} />)}
+                      </tr>
+                    ))}
+                    {qualityRejections.items.length === 0 && (
+                      <tr><td colSpan={5} style={{ padding: '12px 7px', fontSize: 12, color: INK3, textAlign: 'center' }}>No rejections today</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <Card className="mfg-card" style={{ minWidth: 180 }}>
+              <CardTitle icon="ti-bolt" title="Quick actions" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {QUICK_ACTIONS.map(a => (
+                  <a key={a.label} href={erpUrl(a.path)} target="_blank" rel="noreferrer"
+                    className={`action-btn${a.primary ? ' primary' : ''}`}
+                    style={{ gridColumn: a.primary ? '1 / -1' : undefined }}>
+                    <i className={`ti ${a.icon}`} />
+                    {a.label}
+                  </a>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+        </div>
       </div>
-    </div>
+    </>
   )
 }
