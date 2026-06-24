@@ -5,11 +5,11 @@ export const manufacturingHomepageMock: ManufacturingHomepageData = {
   erpBaseUrl: 'http://proman.localhost:8000',
 
   kpis: {
-    activeWOs:      { value: 16, sub: 'Across 8 stages', red: 4, amber: 5, green: 5, hold: 2 },
-    completedToday: { value: 2,  sub: 'WO-046, WO-041'  },
-    delayedRed:     { value: 4,  sub: 'Needs action now' },
-    atRiskAmber:    { value: 5,  sub: 'Monitor closely'  },
-    onHold:         { value: 2,  sub: 'Active holds'     },
+    activeWOs:      { value: 16, sub: 'Work orders in progress', trend: null, red: 4, amber: 5, green: 5, hold: 2 },
+    completedToday: { value: 2,  sub: 'Completed work orders today', trend: null },
+    delayedRed:     { value: 4,  sub: 'Needs immediate action',      trend: null },
+    atRiskAmber:    { value: 5,  sub: 'Due within 5 days',           trend: null },
+    onHold:         { value: 2,  sub: 'Active holds',                trend: null },
   },
 
   alert: '2 Work Orders critically overdue (7+ days) — WO-2026-058 (Dalmia Bharat, PE-900×1200) and WO-2026-074 (SAIL Bhilai, VSI-900). Immediate escalation required.',

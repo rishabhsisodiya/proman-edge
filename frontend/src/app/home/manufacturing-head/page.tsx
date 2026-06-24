@@ -191,11 +191,11 @@ export default function ManufacturingHeadHomepage() {
   // KPI definitions
   type KpiKey = 'red' | 'amber' | 'green' | 'hold'
   const KPI_DEFS = [
-    { cls: '',        lbl: 'Active work orders', val: kpis.activeWOs.value,      sub: kpis.activeWOs.sub,      rag: true  as const },
-    { cls: 'k-green', lbl: 'Completed today',    val: kpis.completedToday.value, sub: kpis.completedToday.sub, rag: false as const },
-    { cls: 'k-red',   lbl: 'Delayed',            val: kpis.delayedRed.value,     sub: kpis.delayedRed.sub,     rag: false as const },
-    { cls: 'k-amber', lbl: 'At risk',            val: kpis.atRiskAmber.value,    sub: kpis.atRiskAmber.sub,    rag: false as const },
-    { cls: 'k-hold',  lbl: 'On hold',            val: kpis.onHold.value,         sub: kpis.onHold.sub,         rag: false as const },
+    { cls: '',        lbl: 'Active work orders', val: kpis.activeWOs.value,      kpi: kpis.activeWOs,      trendLabel: 'vs yesterday', rag: true  as const },
+    { cls: 'k-green', lbl: 'Completed today',    val: kpis.completedToday.value, kpi: kpis.completedToday, trendLabel: 'vs yesterday', rag: false as const },
+    { cls: 'k-red',   lbl: 'Delayed',            val: kpis.delayedRed.value,     kpi: kpis.delayedRed,     trendLabel: 'needs action', rag: false as const },
+    { cls: 'k-amber', lbl: 'At risk',            val: kpis.atRiskAmber.value,    kpi: kpis.atRiskAmber,    trendLabel: 'monitor',      rag: false as const },
+    { cls: 'k-hold',  lbl: 'On hold',            val: kpis.onHold.value,         kpi: kpis.onHold,         trendLabel: 'active holds', rag: false as const },
   ]
   const KPI_TOP: Record<string, string> = { '': '#C7C9DD', 'k-green': '#74C495', 'k-red': '#E07A7A', 'k-amber': '#E0A857', 'k-hold': '#A6ABBC' }
 
@@ -381,22 +381,35 @@ export default function ManufacturingHeadHomepage() {
               <span style={{ fontSize: 12, color: '#AAB0DC' }}>{kpis.activeWOs.value} active work orders · live to 5 min</span>
             </div>
             <div className="mfg-kpi-strip">
-              {KPI_DEFS.map((k, i) => (
-                <div key={i} className="kpi-item" style={{ borderTop: `3px solid ${KPI_TOP[k.cls]}` }}>
-                  <div style={{ fontSize: 12.5, color: '#C7CBEC', marginBottom: 5 }}>{k.lbl}</div>
-                  <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 31, fontWeight: 700, color: '#fff', lineHeight: 1 }}>{k.val}</div>
-                  <div style={{ fontSize: 12, color: '#AAB0DC', marginTop: 5 }}>{k.sub}</div>
-                  {k.rag && (
-                    <div style={{ display: 'flex', height: 4, borderRadius: 99, overflow: 'hidden', marginTop: 5, gap: 1 }}>
-                      {(['red','amber','green','hold'] as const).map(r =>
-                        (kpis.activeWOs as Record<KpiKey, number>)[r] > 0
-                          ? <span key={r} style={{ flex: (kpis.activeWOs as Record<KpiKey, number>)[r], background: RAG_HEX[r] }} />
-                          : null
-                      )}
+              {KPI_DEFS.map((k, i) => {
+                const trendColor = k.kpi.trend
+                  ? k.kpi.trend.dir === 'up'  ? '#86E5AC'
+                  : k.kpi.trend.dir === 'down' ? '#FFB0AC'
+                  :                              '#FCD9A0'
+                  : '#FCD9A0'
+                const trendText = k.kpi.trend
+                  ? `${k.kpi.trend.delta} ${k.kpi.trend.label}`
+                  : `0 ${k.trendLabel}`
+                return (
+                  <div key={i} className="kpi-item" style={{ borderTop: `3px solid ${KPI_TOP[k.cls]}` }}>
+                    <div style={{ fontSize: 12.5, color: '#C7CBEC', marginBottom: 5 }}>{k.lbl}</div>
+                    <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 31, fontWeight: 700, color: '#fff', lineHeight: 1 }}>{k.val}</div>
+                    <div style={{ fontSize: 12, color: '#AAB0DC', marginTop: 5, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      <span style={{ color: trendColor, fontWeight: 600 }}>{trendText}</span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div style={{ fontSize: 11, color: '#AAB0DC', marginTop: 2 }}>{k.kpi.sub}</div>
+                    {k.rag && (
+                      <div style={{ display: 'flex', height: 4, borderRadius: 99, overflow: 'hidden', marginTop: 6, gap: 1 }}>
+                        {(['red','amber','green','hold'] as const).map(r =>
+                          (kpis.activeWOs as Record<KpiKey, number>)[r] > 0
+                            ? <span key={r} style={{ flex: (kpis.activeWOs as Record<KpiKey, number>)[r], background: RAG_HEX[r] }} />
+                            : null
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
 
@@ -445,7 +458,11 @@ export default function ManufacturingHeadHomepage() {
               <div className="mfg-sub2">
                 <Card className="mfg-card">
                   <CardTitle icon="ti-chart-bar" title="Mfg sub-stages (S6)" />
-                  <SubStageChart stages={mfgSubStages} />
+                  <div style={{ overflowX: 'auto' }}>
+                    <div style={{ minWidth: mfgSubStages.length * 56 }}>
+                      <SubStageChart stages={mfgSubStages} />
+                    </div>
+                  </div>
                 </Card>
                 <Card className="mfg-card">
                   <CardTitle icon="ti-package-off" title="Material shortages"

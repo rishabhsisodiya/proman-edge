@@ -1,3 +1,9 @@
+export interface KpiTrend {
+  dir: 'up' | 'down' | 'neutral'
+  delta: string   // e.g. "▲ 2", "▼ 1", "– 0"
+  label: string   // e.g. "vs yesterday"
+}
+
 export interface PipelineStage {
   label: string; short: string; color: string
   red: number; amber: number; green: number; hold: number
@@ -37,11 +43,11 @@ export interface ManufacturingHomepageData {
   erpBaseUrl: string
   alert:      string
   kpis: {
-    activeWOs:      { value: number; sub: string; red: number; amber: number; green: number; hold: number }
-    completedToday: { value: number; sub: string }
-    delayedRed:     { value: number; sub: string }
-    atRiskAmber:    { value: number; sub: string }
-    onHold:         { value: number; sub: string }
+    activeWOs:      { value: number; sub: string; trend: KpiTrend | null; red: number; amber: number; green: number; hold: number }
+    completedToday: { value: number; sub: string; trend: KpiTrend | null }
+    delayedRed:     { value: number; sub: string; trend: KpiTrend | null }
+    atRiskAmber:    { value: number; sub: string; trend: KpiTrend | null }
+    onHold:         { value: number; sub: string; trend: KpiTrend | null }
   }
   pipelineStages:    PipelineStage[]
   delayedWOs:        DelayedWO[]

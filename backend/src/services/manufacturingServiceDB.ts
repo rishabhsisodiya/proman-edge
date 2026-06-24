@@ -74,12 +74,16 @@ async function getKpis() {
   const onHoldVal   = onHold[0].cnt
   const greenVal    = Math.max(0, activeVal - delayedVal - atRiskVal - onHoldVal)
 
+  // Trend data requires a daily snapshot table — not yet available.
+  // All trends are null (rendered as "— vs yesterday" in neutral colour).
+  const noTrend = null
+
   return {
-    activeWOs:      { value: activeVal, sub: 'Work orders in progress', red: delayedVal, amber: atRiskVal, green: greenVal, hold: onHoldVal },
-    completedToday: { value: completed[0].cnt, sub: 'All completed work orders' },
-    delayedRed:     { value: delayedVal,  sub: `Past delivery date by >${GRACE_DAYS} days` },
-    atRiskAmber:    { value: atRiskVal,   sub: `Due within ${ATRISK_DAYS} days or behind pace` },
-    onHold:         { value: onHoldVal,   sub: 'Stopped / on hold' },
+    activeWOs:      { value: activeVal, sub: 'Work orders in progress', trend: noTrend, red: delayedVal, amber: atRiskVal, green: greenVal, hold: onHoldVal },
+    completedToday: { value: completed[0].cnt, sub: 'Completed work orders today', trend: noTrend },
+    delayedRed:     { value: delayedVal,  sub: 'Needs immediate action',             trend: noTrend },
+    atRiskAmber:    { value: atRiskVal,   sub: `Due within ${ATRISK_DAYS} days`,     trend: noTrend },
+    onHold:         { value: onHoldVal,   sub: 'Active holds',                        trend: noTrend },
   }
 }
 
