@@ -182,7 +182,10 @@ export default function ManufacturingHeadHomepage() {
   const [showSwitcher, setShowSwitcher] = useState(false)
   const { user, isLoading: userLoading } = useCurrentUser()
   const { data, isLoading, isError }     = useManufacturingHomepage()
-  const switcherOptions = SWITCHER_OPTIONS[user?.roleSlug ?? ''] ?? []
+  const roleSlug = user?.roleSlug
+    ?? document.cookie.split(';').find(c => c.trim().startsWith('proman_role='))?.split('=')[1]
+    ?? ''
+  const switcherOptions = SWITCHER_OPTIONS[roleSlug] ?? []
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
