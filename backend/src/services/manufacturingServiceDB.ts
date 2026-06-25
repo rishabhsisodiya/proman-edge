@@ -90,17 +90,19 @@ async function getKpis() {
 // ── W-MH-06 Delayed WOs list ─────────────────────────────────────────────────
 async function getDelayedWOs(): Promise<DelayedWO[]> {
   const rows = await query<{
-    name: string; customer_name: string; stage_name: string
+    name: string; customer_name: string
+    pipeline_stage: string | null; pipeline_stage_name: string | null
     expected_delivery_date: string; status: string
   }>(
     `SELECT
        wo.name,
        COALESCE(so.customer_name, wo.sales_order, '—') AS customer_name,
-       COALESCE(op.stage_name, '—')                    AS stage_name,
-       wo.expected_delivery_date,
-       wo.status
+       wo.status,
+       op.stage                                         AS pipeline_stage,
+       op.stage_name                                    AS pipeline_stage_name,
+       wo.expected_delivery_date
      FROM \`tabWork Order\` wo
-     LEFT JOIN \`tabSales Order\`   so ON so.name          = wo.sales_order
+     LEFT JOIN \`tabSales Order\`    so ON so.name           = wo.sales_order
      LEFT JOIN \`tabOrder Pipeline\` op ON op.sales_order_id = wo.sales_order
      WHERE wo.docstatus = 1
        AND wo.status IN ('In Process','Not Started','Stopped')
@@ -143,10 +145,13 @@ async function getDelayedWOs(): Promise<DelayedWO[]> {
     } else {
       rag = 'amber'; label = 'At risk'
     }
+    const stage = r.pipeline_stage && r.pipeline_stage_name
+      ? `${r.pipeline_stage}·${r.pipeline_stage_name.split(' ')[0]}`
+      : r.status === 'Stopped' ? 'On hold' : '—'
     return {
       wo:       r.name,
       customer: r.customer_name,
-      stage:    r.stage_name,
+      stage,
       daysOver: rag === 'red' ? daysOver : 0,
       rag,
       label,
@@ -362,7 +367,7 @@ async function getCompletingThisWeek(): Promise<CompletingWO[]> {
       wo:         r.name,
       customer:   r.customer_name,
       product:    r.production_item,
-      due:        r.expected_delivery_date,
+      due:        new Date(r.expected_delivery_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
       stage:      r.stage_name,
       completion,
       rag,

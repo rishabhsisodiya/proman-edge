@@ -36,6 +36,19 @@ const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
   ],
 }
 
+// S1–S9 fixed stage definitions from template (colors + names match exactly)
+const PIPELINE_STAGES = [
+  { short: 'S1', label: 'Eng & design',  color: '#3a4080' },
+  { short: 'S2', label: 'Prod planning', color: '#2A2F69' },
+  { short: 'S3', label: 'Procurement',   color: '#1A6B3A' },
+  { short: 'S4', label: 'Vendor dev',    color: '#6B4226' },
+  { short: 'S5', label: 'Stores',        color: '#4A235A' },
+  { short: 'S6', label: 'Manufacturing', color: '#242859' },
+  { short: 'S7', label: 'Quality',       color: '#7D6608' },
+  { short: 'S8', label: 'Dispatch',      color: '#185FA5' },
+  { short: 'S9', label: 'Installation',  color: '#6E2C00' },
+]
+
 const QUICK_ACTIONS = [
   { icon: 'ti-arrow-right',    label: 'Update WO stage',      path: 'work-order',                           primary: true  },
   { icon: 'ti-tool',           label: 'Log downtime',         path: 'downtime-entry/new-downtime-entry-1',  primary: false },
@@ -117,10 +130,10 @@ function SubStageChart({ stages }: { stages: SubStage[] }) {
           return (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, flex: 1, height: '100%' }}>
               <div style={{ display: 'flex', flexDirection: 'column-reverse', width: '100%', flex: 1, gap: 2, minHeight: 0 }}>
-                {s.green > 0 && <div style={{ width: '100%', height: `${(s.green / SMAX) * 100}%`, background: GREEN,      borderRadius: 3, minHeight: 3 }} />}
-                {s.hold  > 0 && <div style={{ width: '100%', height: `${(s.hold  / SMAX) * 100}%`, background: '#6B7280',  borderRadius: 3, minHeight: 3 }} />}
-                {s.amber > 0 && <div style={{ width: '100%', height: `${(s.amber / SMAX) * 100}%`, background: AMBER,      borderRadius: 3, minHeight: 3 }} />}
-                {s.red   > 0 && <div style={{ width: '100%', height: `${(s.red   / SMAX) * 100}%`, background: RED,        borderRadius: 3, minHeight: 3 }} />}
+                {s.green > 0 && <div style={{ width: '100%', height: `${(s.green / SMAX) * 100}%`, background: RAG_HEX.green, borderRadius: 3, minHeight: 3 }} />}
+                {s.hold  > 0 && <div style={{ width: '100%', height: `${(s.hold  / SMAX) * 100}%`, background: RAG_HEX.hold,  borderRadius: 3, minHeight: 3 }} />}
+                {s.amber > 0 && <div style={{ width: '100%', height: `${(s.amber / SMAX) * 100}%`, background: RAG_HEX.amber, borderRadius: 3, minHeight: 3 }} />}
+                {s.red   > 0 && <div style={{ width: '100%', height: `${(s.red   / SMAX) * 100}%`, background: RAG_HEX.red,   borderRadius: 3, minHeight: 3 }} />}
               </div>
               <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>{tot}</div>
               <div style={{ fontSize: 11, color: INK2, textAlign: 'center', lineHeight: 1.15, fontWeight: 600 }}>{s.label}</div>
@@ -129,7 +142,7 @@ function SubStageChart({ stages }: { stages: SubStage[] }) {
         })}
       </div>
       <div style={{ display: 'flex', gap: 11, justifyContent: 'center', marginTop: 9, fontSize: 11, color: INK2 }}>
-        {[['Red', RED], ['Amber', AMBER], ['Green', GREEN], ['Hold', '#6B7280']].map(([l, c]) => (
+        {[['Red', RAG_HEX.red], ['Amber', RAG_HEX.amber], ['Green', RAG_HEX.green], ['Hold', RAG_HEX.hold]].map(([l, c]) => (
           <span key={l}>
             <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: c, verticalAlign: -1, marginRight: 3 }} />
             {l}
@@ -418,12 +431,15 @@ export default function ManufacturingHeadHomepage() {
             <CardTitle icon="ti-layout-kanban" title="Operations pipeline · S1 to S9"
               right={<ViewAll href={erpUrl('work-order/view/kanban')} label="Open pipeline ↗" />} />
             <div className="mfg-pipe">
-              {pipelineStages.map((s, i) => <PipelineTile key={i} s={s} />)}
-              {pipelineStages.length === 0 && (
-                <div style={{ gridColumn: '1/-1', fontSize: 12, color: INK3, textAlign: 'center', padding: '16px 0' }}>
-                  Pipeline stage data not yet configured — ask ERP developer to populate Order Pipeline tables.
-                </div>
-              )}
+              {PIPELINE_STAGES.map((def) => {
+                // Merge live counts from DB if available, otherwise zeros
+                const live = pipelineStages.find(p => p.short === def.short)
+                const s: PipelineStage = {
+                  short: def.short, label: def.label, color: def.color,
+                  red: live?.red ?? 0, amber: live?.amber ?? 0, green: live?.green ?? 0, hold: live?.hold ?? 0,
+                }
+                return <PipelineTile key={def.short} s={s} />
+              })}
             </div>
           </Card>
 
@@ -456,7 +472,7 @@ export default function ManufacturingHeadHomepage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 0 }}>
               <div className="mfg-sub2">
-                <Card className="mfg-card">
+                <Card className="mfg-card" style={{ borderTop: '3px solid #242859' }}>
                   <CardTitle icon="ti-chart-bar" title="Mfg sub-stages (S6)" />
                   <div style={{ overflowX: 'auto' }}>
                     <div style={{ minWidth: mfgSubStages.length * 56 }}>
