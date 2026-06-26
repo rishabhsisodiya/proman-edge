@@ -370,7 +370,12 @@ export default function ManufacturingHeadHomepage() {
             <div style={{ background: RED_BG, border: `1px solid #E4B4B4`, borderRadius: 10, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 14, color: RED }}>
               <i className="ti ti-alert-triangle" style={{ fontSize: 20, flexShrink: 0 }} />
               <span><strong>{data.alert}</strong></span>
-              <button style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 600, border: `1px solid currentColor`, background: 'none', color: 'inherit', borderRadius: 7, padding: '3px 10px', cursor: 'pointer' }}>Escalate</button>
+              <button
+                onClick={() => {
+                  const today = new Date().toISOString().slice(0, 10)
+                  window.open(erpUrl(`work-order?docstatus=1&status=%5B%22in%22%2C%5B%22Not+Started%22%2C%22In+Process%22%2Cnull%5D%5D&expected_delivery_date=%5B%22%3C%22%2C%22${today}%22%5D`), '_blank')
+                }}
+                style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 600, border: `1px solid currentColor`, background: 'none', color: 'inherit', borderRadius: 7, padding: '3px 10px', cursor: 'pointer' }}>Escalate</button>
             </div>
           )}
 
