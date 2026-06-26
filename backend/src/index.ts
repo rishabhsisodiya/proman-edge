@@ -11,9 +11,15 @@ const PORT = process.env.PORT || 4000
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000' }))
 app.use(express.json())
 
-// Request logger
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`)
+// Request + response logger
+app.use((req, res, next) => {
+  const t0 = Date.now()
+  console.log(`[${new Date().toISOString()}] → ${req.method} ${req.path}`)
+  res.on('finish', () => {
+    const ms = Date.now() - t0
+    const ok = res.statusCode < 400
+    console.log(`[${new Date().toISOString()}] ${ok ? '✓' : '✗'} ${req.method} ${req.path} ${res.statusCode} (${ms}ms)`)
+  })
   next()
 })
 

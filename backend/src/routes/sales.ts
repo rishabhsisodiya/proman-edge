@@ -52,6 +52,7 @@ router.post('/quotation/:id/convert', async (req: Request, res: Response) => {
     res.json({ success: true, ...result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[convert] ${req.params.id} → ${message}`)
     res.status(500).json({ success: false, error: message })
   }
 })

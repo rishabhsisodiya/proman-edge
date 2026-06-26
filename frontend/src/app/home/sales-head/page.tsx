@@ -198,7 +198,9 @@ export default function SalesHeadHomepage() {
   const [showBell, setShowBell]         = useState(false)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [drawerDeal, setDrawerDeal]     = useState<FollowUpItem | null>(null)
-  const [actionMsg, setActionMsg]       = useState('')
+  const [actionMsg, setActionMsg]       = useState<{ msg: string; url?: string } | null>(null)
+  const [convertResult, setConvertResult] = useState<{ quotation: string; soName: string; soUrl: string } | null>(null)
+  const [convertPrompt, setConvertPrompt] = useState<{ quotation: string; deliveryDate: string } | null>(null)
   const bellRef     = useRef<HTMLDivElement>(null)
   const actionQRef  = useRef<HTMLDivElement>(null)
   const switcherRef = useRef<HTMLDivElement>(null)
@@ -218,9 +220,9 @@ export default function SalesHeadHomepage() {
   // Load real quotation detail when drawer opens
   const { detail, isLoading: detailLoading } = useQuotationDetail(drawerDeal?.quotation ?? null)
 
-  function toast(msg: string) {
-    setActionMsg(msg)
-    setTimeout(() => setActionMsg(''), 3000)
+  function toast(msg: string, url?: string) {
+    setActionMsg({ msg, url })
+    setTimeout(() => setActionMsg(null), 5000)
   }
 
   async function handleExtend(quotation: string) {
@@ -232,11 +234,24 @@ export default function SalesHeadHomepage() {
     }
   }
 
-  async function handleConvert(quotation: string) {
+  function handleConvert(quotation: string) {
+    const today = new Date().toISOString().slice(0, 10)
+    setConvertPrompt({ quotation, deliveryDate: today })
+  }
+
+  async function doConvert() {
+    if (!convertPrompt) return
+    const { quotation, deliveryDate } = convertPrompt
+    setConvertPrompt(null)
     try {
-      const res = await convertToSalesOrder(quotation)
-      toast(res.salesOrder ? `Sales Order ${res.salesOrder} created` : 'Conversion initiated')
+      const res = await convertToSalesOrder(quotation, deliveryDate)
       setDrawerDeal(null)
+      if (res.salesOrder) {
+        const soUrl = erpUrl(`sales-order/${encodeURIComponent(res.salesOrder)}`)
+        setConvertResult({ quotation, soName: res.salesOrder, soUrl })
+      } else {
+        toast('Draft Sales Order created — check ERPNext to submit')
+      }
     } catch (err) {
       const raw = err instanceof Error ? err.message : ''
       const friendly = raw.includes('Sales Team')
@@ -935,9 +950,70 @@ export default function SalesHeadHomepage() {
       )}
 
       {/* ── TOAST ── */}
+      {convertPrompt && (
+        <>
+          <div onClick={() => setConvertPrompt(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 300 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 14, padding: 28, zIndex: 301, width: 340, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Convert to Sales Order</div>
+            <div style={{ fontSize: 11.5, color: TEXT2, marginBottom: 16 }}>{convertPrompt.quotation}</div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: TEXT2, display: 'block', marginBottom: 6 }}>Delivery Date</label>
+            <input type="date" value={convertPrompt.deliveryDate}
+              onChange={e => setConvertPrompt(p => p ? { ...p, deliveryDate: e.target.value } : p)}
+              style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${BORDER}`, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConvertPrompt(null)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${BORDER}`, background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: TEXT2 }}>
+                Cancel
+              </button>
+              <button onClick={doConvert} disabled={!convertPrompt.deliveryDate}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }}>
+                Convert ↗
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {convertResult && (
+        <>
+          <div onClick={() => setConvertResult(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 300 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 14, padding: 28, zIndex: 301, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,.25)', textAlign: 'center' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#DCFCE7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 26, color: '#166534' }} />
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 6 }}>Sales Order Created</div>
+            <div style={{ fontSize: 12, color: TEXT2, marginBottom: 4 }}>From quotation <strong>{convertResult.quotation}</strong></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: NAVY, background: '#F1F2FB', borderRadius: 8, padding: '8px 12px', margin: '12px 0 18px' }}>
+              {convertResult.soName}
+            </div>
+            <div style={{ fontSize: 11.5, color: TEXT2, marginBottom: 20 }}>
+              A draft Sales Order has been created in ERPNext. Open it to review and submit.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConvertResult(null)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${BORDER}`, background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: TEXT2 }}>
+                Close
+              </button>
+              <a href={convertResult.soUrl} target="_blank" rel="noreferrer" onClick={() => setConvertResult(null)}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                Open in ERPNext ↗
+              </a>
+            </div>
+          </div>
+        </>
+      )}
+
       {actionMsg && (
-        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: NAVY, color: '#fff', fontSize: 12, padding: '10px 16px', borderRadius: 9, boxShadow: '0 10px 30px rgba(0,0,0,.25)', zIndex: 60, maxWidth: '90vw', whiteSpace: 'nowrap' }}>
-          {actionMsg}
+        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: NAVY, color: '#fff', fontSize: 12, padding: '10px 16px', borderRadius: 9, boxShadow: '0 10px 30px rgba(0,0,0,.25)', zIndex: 60, maxWidth: '90vw', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span>{actionMsg.msg}</span>
+          {actionMsg.url && (
+            <a href={actionMsg.url} target="_blank" rel="noreferrer"
+              style={{ color: ORANGE, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Open ↗
+            </a>
+          )}
         </div>
       )}
     </div>

@@ -380,9 +380,24 @@ export async function convertToSalesOrder(
   deliveryDate?: string,
 ): Promise<{ ok: boolean; salesOrder?: string }> {
   if (useMock()) return { ok: true, salesOrder: 'SAL-SO-2026-MOCK' }
-  const env = await frappePost<FrappeEnvelope<{ sales_order?: string }, unknown>>(
-    `${SALES_ACTIONS}.convert_quotation_to_sales_order`,
-    { quotation, ...(deliveryDate ? { delivery_date: deliveryDate } : {}) },
+
+  const body: Record<string, unknown> = { source_name: quotation }
+  if (deliveryDate) body.delivery_date = deliveryDate
+
+  const result = await frappePost<Record<string, unknown>>(
+    'erpnext.selling.doctype.quotation.quotation.make_sales_order',
+    body,
   )
-  return { ok: true, salesOrder: env.summary.sales_order }
+  // make_sales_order returns an unsaved doc — set delivery_date on header + all items then save
+  const doc = result as Record<string, unknown>
+  if (deliveryDate) {
+    doc.delivery_date = deliveryDate
+    const items = doc.items as Record<string, unknown>[] | undefined
+    if (Array.isArray(items)) {
+      items.forEach(item => { item.delivery_date = deliveryDate })
+    }
+  }
+  const saved = await frappePost<Record<string, unknown>>('frappe.client.save', { doc })
+  const soName = saved?.name as string | undefined
+  return { ok: true, salesOrder: soName }
 }
