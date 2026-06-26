@@ -237,8 +237,14 @@ export default function SalesHeadHomepage() {
       const res = await convertToSalesOrder(quotation)
       toast(res.salesOrder ? `Sales Order ${res.salesOrder} created` : 'Conversion initiated')
       setDrawerDeal(null)
-    } catch {
-      toast('Convert failed — check ERPNext connection')
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : ''
+      const friendly = raw.includes('Sales Team')
+        ? `Cannot convert ${quotation} — Sales Team allocation is incomplete. Fix it in ERPNext and retry.`
+        : raw.includes('mandatory') || raw.includes('missing')
+        ? `Cannot convert ${quotation} — required fields are missing in the quotation.`
+        : raw || 'Convert failed — check ERPNext connection'
+      toast(friendly)
     }
   }
 
@@ -323,6 +329,8 @@ export default function SalesHeadHomepage() {
   const _now      = new Date()
   const mtdFrom   = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-01`
   const mtdTo     = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
+  const _weekEnd  = new Date(_now); _weekEnd.setDate(_now.getDate() + 7)
+  const weekEndStr = `${_weekEnd.getFullYear()}-${String(_weekEnd.getMonth() + 1).padStart(2, '0')}-${String(_weekEnd.getDate()).padStart(2, '0')}`
 
   const funnel  = data.funnel[funnelPeriod]
   const rMax    = Math.max(...data.regionPipeline.map(r => r.quoted + r.negotiation + r.won))
@@ -626,8 +634,8 @@ export default function SalesHeadHomepage() {
                 </div>
                 <a href={erpUrl(
                     activeTab === 0 ? 'quotation?docstatus=1&status=Open' :
-                    activeTab === 1 ? `quotation?docstatus=1&valid_till=Today` :
-                                     'quotation?docstatus=1&status=Lost'
+                    activeTab === 1 ? `quotation?docstatus=1&status=Open&valid_till=%5B%22Between%22%2C%5B%22${mtdTo}%22%2C%22${weekEndStr}%22%5D%5D` :
+                                     `quotation?docstatus=1&status=Lost&modified=%5B%22Between%22%2C%5B%22${mtdFrom}%22%2C%22${mtdTo}%22%5D%5D`
                   )} target="_blank" rel="noreferrer"
                   style={{ fontSize: 10, color: NAVY, cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 500, textDecoration: 'none' }}>
                   View all ↗
@@ -636,7 +644,7 @@ export default function SalesHeadHomepage() {
               {/* Tabs */}
               <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, marginBottom: 9, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'Follow-ups due today',          count: data.followUps.length,           bg: '#FCEBEB', color: '#991B1B' },
+                  { label: 'Follow-ups due today',          count: data.followUpsTotal,             bg: '#FCEBEB', color: '#991B1B' },
                   { label: 'Quotations expiring this week', count: data.expiringQuotations.length,  bg: WARNING_BG, color: '#92600A' },
                   { label: 'Lost orders this month',        count: data.lostDeals.deals.length,     bg: '#EEF0F3', color: TEXT2 },
                 ].map((t, i) => (
@@ -660,7 +668,7 @@ export default function SalesHeadHomepage() {
                       ))}
                     </tr></thead>
                     <tbody>
-                      {data.followUps.slice(0, 10).map((r, i) => (
+                      {data.followUps.map((r, i) => (
                         <tr key={i} style={{ cursor: 'pointer', background: r.daysOverdue > 7 ? '#FFF8E6' : '' }}
                           onClick={() => setDrawerDeal(r)}
                           onMouseOver={e => { if (r.daysOverdue <= 7) e.currentTarget.style.background = HOVER }}
@@ -670,7 +678,7 @@ export default function SalesHeadHomepage() {
                           <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: TEXT2 }}>{r.product}</td>
                           <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
                           <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>
-                            <span style={{ fontSize: 8.5, fontWeight: 600, padding: '2px 7px', borderRadius: 99, whiteSpace: 'nowrap', background: r.severity === 'red' ? '#FCEBEB' : WARNING_BG, color: r.severity === 'red' ? '#991B1B' : '#92600A' }}>
+                            <span style={{ fontSize: 8.5, fontWeight: 600, padding: '2px 7px', borderRadius: 99, whiteSpace: 'nowrap', background: r.severity === 'red' ? '#FCEBEB' : r.severity === 'amber' ? WARNING_BG : '#DCFCE7', color: r.severity === 'red' ? '#991B1B' : r.severity === 'amber' ? '#92600A' : '#166534' }}>
                               {r.daysOverdue}d
                             </span>
                           </td>
@@ -695,6 +703,7 @@ export default function SalesHeadHomepage() {
                     <tbody>
                       {data.expiringQuotations.map((r, i) => (
                         <tr key={i} style={{ cursor: 'pointer' }}
+                          onClick={() => setDrawerDeal({ quotation: r.quotation, customer: r.customer, product: '—', value: r.value, daysOverdue: 0, validTill: r.validTill, owner: '—', region: '—', stage: 'Quoted', severity: 'red', rank: i + 1 })}
                           onMouseOver={e => e.currentTarget.style.background = HOVER}
                           onMouseOut={e => e.currentTarget.style.background = ''}>
                           <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: NAVY, fontWeight: 600 }}>{r.quotation}</td>
@@ -728,6 +737,7 @@ export default function SalesHeadHomepage() {
                     <tbody>
                       {data.lostDeals.deals.slice(0, 10).map((r, i) => (
                         <tr key={i} style={{ cursor: 'pointer' }}
+                          onClick={() => setDrawerDeal({ quotation: r.quotation, customer: r.customer, product: '—', value: r.value, daysOverdue: 0, validTill: '—', owner: '—', region: '—', stage: 'Lost', severity: 'red', rank: i + 1 })}
                           onMouseOver={e => e.currentTarget.style.background = HOVER}
                           onMouseOut={e => e.currentTarget.style.background = ''}>
                           <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: NAVY, fontWeight: 600 }}>{r.quotation}</td>
@@ -803,11 +813,10 @@ export default function SalesHeadHomepage() {
                         <span>{r.region}</span>
                         <span style={{ fontVariantNumeric: 'tabular-nums' }}>₹{total}L</span>
                       </div>
-                      {/* inline value labels */}
-                      <div style={{ display: 'flex', fontSize: 8.5, fontWeight: 700, margin: '2px 0', lineHeight: 1 }}>
-                        <span style={{ color: NAVY, width: `${wq}%`, whiteSpace: 'nowrap', overflow: 'hidden', paddingRight: 3 }}>₹{r.quoted}L</span>
-                        <span style={{ color: WARNING, width: `${wn}%`, whiteSpace: 'nowrap', overflow: 'hidden', paddingRight: 3 }}>₹{r.negotiation}L</span>
-                        <span style={{ color: SUCCESS, width: `${ww}%`, whiteSpace: 'nowrap', overflow: 'hidden' }}>₹{r.won}L</span>
+                      <div style={{ display: 'flex', fontSize: 8.5, fontWeight: 700, margin: '2px 0', lineHeight: 1.4 }}>
+                        {wq > 0 && <span style={{ color: NAVY,    width: `${wq}%`, display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>₹{r.quoted}L</span>}
+                        {wn > 0 && <span style={{ color: WARNING, width: `${wn}%`, display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>₹{r.negotiation}L</span>}
+                        {ww > 0 && <span style={{ color: SUCCESS, width: `${ww}%`, display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>₹{r.won}L</span>}
                       </div>
                       <div style={{ display: 'flex', height: 11, borderRadius: 99, overflow: 'hidden', gap: 1 }}>
                         <div style={{ width: `${wq}%`, background: NAVY, borderRadius: '99px 0 0 99px' }} />

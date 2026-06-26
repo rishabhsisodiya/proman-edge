@@ -1,5 +1,4 @@
 import { query } from '../db'
-import { salesHomepageMock } from '../mock/sales'
 import type { SalesHomepageData, KPI, FunnelStage } from '../types/sales'
 import { rupees } from '../lib/format'
 
@@ -419,34 +418,116 @@ async function getExpiringQuotations(company: string) {
 // ── Follow-up queue ─────────────────────────────────────────────────────────
 
 async function getFollowUps(company: string) {
-  const rows = await query<{
-    name: string; customer_name: string; grand_total: number
-    valid_till: Date | string; owner: string; transaction_date: string
-  }>(
-    `SELECT name, customer_name, grand_total, valid_till, owner, transaction_date
-     FROM tabQuotation
-     WHERE docstatus = 1 AND status = 'Open'
-       AND valid_till < DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-     ORDER BY valid_till ASC
-     LIMIT 50`,
-  )
+  const [rows, countRows] = await Promise.all([
+    query<{
+      name: string; customer_name: string; base_grand_total: number
+      valid_till: Date | string; owner: string; transaction_date: string
+      product: string; days_since_followup: number
+    }>(
+      `SELECT q.name, q.customer_name, q.base_grand_total, q.transaction_date, q.valid_till, q.owner,
+              (SELECT item_name FROM \`tabQuotation Item\` WHERE parent=q.name ORDER BY idx LIMIT 1) AS product,
+              DATEDIFF(CURDATE(), COALESCE(MAX(c.communication_date), q.transaction_date)) AS days_since_followup
+       FROM \`tabQuotation\` q
+       LEFT JOIN \`tabCommunication\` c ON c.reference_doctype='Quotation' AND c.reference_name=q.name
+       WHERE q.docstatus=1 AND q.status='Open'
+       GROUP BY q.name, q.customer_name, q.base_grand_total, q.transaction_date, q.valid_till, q.owner
+       ORDER BY days_since_followup DESC
+       LIMIT 10`,
+    ),
+    query<{ cnt: number }>(
+      `SELECT COUNT(*) AS cnt FROM tabQuotation
+       WHERE docstatus = 1 AND status = 'Open'`,
+    ),
+  ])
 
-  return rows.map((r, i) => {
-    const days = Math.floor((new Date(r.valid_till).getTime() - Date.now()) / 86_400_000)
+  const totalOpen = countRows[0]?.cnt ?? 0
+
+  const items = rows.map((r, i) => {
+    const days = Number(r.days_since_followup)
     return {
       quotation:   r.name,
       customer:    r.customer_name,
-      product:     '—',
-      value:       rupees(r.grand_total),
-      daysOverdue: Math.abs(days),
+      product:     r.product ?? '—',
+      value:       rupees(r.base_grand_total),
+      daysOverdue: days,
       validTill:   friendlyDate(r.valid_till),
       owner:       r.owner,
       region:      '—',
       stage:       'Quoted',
-      severity:    (days < 0 ? 'red' : days <= 3 ? 'amber' : 'red') as 'red' | 'amber',
+      severity:    (days > 7 ? 'red' : days >= 4 ? 'amber' : 'green') as 'red' | 'amber' | 'green',
       rank:        i + 1,
     }
   })
+
+  return { items, totalOpen }
+}
+
+// ── Lost deals ──────────────────────────────────────────────────────────────
+
+async function getLostDeals(company: string) {
+  const now = new Date()
+  const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+
+  const rows = await query<{ name: string; customer: string; grand_total: number; reason: string }>(
+    `SELECT q.name, COALESCE(q.customer, q.party_name, q.title, '—') AS customer,
+            q.grand_total,
+            COALESCE(lr.order_lost_reason, 'Not specified') AS reason
+     FROM tabQuotation q
+     LEFT JOIN \`tabQuotation Lost Reason\` lr ON lr.parent = q.name
+     WHERE q.docstatus = 1 AND q.status = 'Lost'
+       AND q.modified >= ?
+     ORDER BY q.modified DESC
+     LIMIT 20`,
+    [from],
+  )
+
+  const deals = rows.map(r => ({
+    quotation:  r.name,
+    customer:   r.customer ?? '—',
+    value:      rupees(r.grand_total),
+    lostReason: r.reason,
+    stageLost:  'Quotation',
+  }))
+
+  // Summary by reason
+  const reasonMap = new Map<string, { deals: number; value: number }>()
+  rows.forEach(r => {
+    const key = r.reason
+    const cur = reasonMap.get(key) ?? { deals: 0, value: 0 }
+    reasonMap.set(key, { deals: cur.deals + 1, value: cur.value + r.grand_total })
+  })
+  const totalVal = rows.reduce((s, r) => s + r.grand_total, 0)
+  const summary = Array.from(reasonMap.entries()).map(([reason, v]) => ({
+    reason,
+    deals: v.deals,
+    value: rupees(v.value),
+    pct:   totalVal > 0 ? Math.round((v.value / totalVal) * 100) : 0,
+  }))
+
+  return { deals, summary }
+}
+
+// ── Region pipeline ─────────────────────────────────────────────────────────
+
+async function getRegionPipeline(company: string) {
+  const rows = await query<{ territory: string; quoted: number; negotiation: number; won: number }>(
+    `SELECT territory,
+            ROUND(SUM(CASE WHEN status = 'Open'    AND DATEDIFF(CURDATE(), transaction_date) <= 7  THEN grand_total ELSE 0 END) / 100000) AS quoted,
+            ROUND(SUM(CASE WHEN status = 'Open'    AND DATEDIFF(CURDATE(), transaction_date)  > 7  THEN grand_total ELSE 0 END) / 100000) AS negotiation,
+            ROUND(SUM(CASE WHEN status = 'Ordered' THEN grand_total ELSE 0 END) / 100000) AS won
+     FROM tabQuotation
+     WHERE docstatus = 1
+       AND territory IS NOT NULL AND territory != '' AND territory != 'All Territories'
+     GROUP BY territory
+     ORDER BY SUM(CASE WHEN status IN ('Open','Ordered') THEN grand_total ELSE 0 END) DESC
+     LIMIT 9`,
+  )
+  return rows.map(r => ({
+    region:      r.territory,
+    quoted:      Number(r.quoted),
+    negotiation: Number(r.negotiation),
+    won:         Number(r.won),
+  }))
 }
 
 // ── Top customers ───────────────────────────────────────────────────────────
@@ -556,9 +637,11 @@ export async function getSalesHomepageFromDB(company: string): Promise<SalesHome
     kpisMtd, kpisQtr, kpisYtd,
     funnelMtd, funnelQtr, funnelYtd,
     revenueTarget,
-    followUps,
+    followUpsResult,
     expiringQuotations,
     topCustomers,
+    lostDeals,
+    regionPipeline,
   ] = await Promise.all([
     getDecisionBand(company),
     getAttention(company),
@@ -572,6 +655,8 @@ export async function getSalesHomepageFromDB(company: string): Promise<SalesHome
     getFollowUps(company),
     getExpiringQuotations(company),
     getTopCustomers(company),
+    getLostDeals(company),
+    getRegionPipeline(company),
   ])
 
   return {
@@ -583,11 +668,12 @@ export async function getSalesHomepageFromDB(company: string): Promise<SalesHome
     kpisAll: { month: kpisMtd, q: kpisQtr, ytd: kpisYtd },
     funnel:  { month: funnelMtd, q: funnelQtr, ytd: funnelYtd },
     revenueTarget,
-    followUps,
+    followUps: followUpsResult.items,
+    followUpsTotal: followUpsResult.totalOpen,
     expiringQuotations,
-    lostDeals: salesHomepageMock.lostDeals,       // not yet in DB query — use mock
+    lostDeals,
     topCustomers,
-    regionPipeline: salesHomepageMock.regionPipeline, // territory aggregation — use mock
+    regionPipeline,
     productRevenue: [],
     deliveryRisk:   [],
   }

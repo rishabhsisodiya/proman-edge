@@ -140,6 +140,7 @@ export interface SalesHomepageData {
   funnel: { month: FunnelStage[]; q: FunnelStage[]; ytd: FunnelStage[] }
   revenueTarget: { pct: number; achieved: number; target: number; daysRemaining: number; trend: RevenueTrend[] }
   followUps: FollowUpItem[]
+  followUpsTotal: number
   expiringQuotations: ExpiringQuotation[]
   lostDeals: { summary: LostReasonSummary[]; deals: LostDeal[] }
   topCustomers: TopCustomer[]

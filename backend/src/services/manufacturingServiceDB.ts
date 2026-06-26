@@ -166,50 +166,19 @@ async function getMfgSubStages(): Promise<SubStage[]> {
   }>(
     `SELECT
        op.name AS label,
-       SUM(CASE
-         WHEN jc.status = 'Open'
-          AND jc.expected_start_date IS NOT NULL
-          AND jc.expected_end_date IS NOT NULL
-          AND jc.expected_end_date > jc.expected_start_date
-          AND jc.expected_end_date < NOW()
-          AND jc.for_quantity > 0
-          AND (jc.total_completed_qty / jc.for_quantity)
-              < (TIMESTAMPDIFF(SECOND, jc.expected_start_date, NOW())
-                 / TIMESTAMPDIFF(SECOND, jc.expected_start_date, jc.expected_end_date))
-         THEN 1 ELSE 0 END) AS red,
-       SUM(CASE
-         WHEN jc.status = 'Open'
-          AND jc.expected_start_date IS NOT NULL
-          AND jc.expected_end_date IS NOT NULL
-          AND jc.expected_end_date > jc.expected_start_date
-          AND jc.expected_end_date >= NOW()
-          AND jc.for_quantity > 0
-          AND (jc.total_completed_qty / jc.for_quantity)
-              < (TIMESTAMPDIFF(SECOND, jc.expected_start_date, NOW())
-                 / TIMESTAMPDIFF(SECOND, jc.expected_start_date, jc.expected_end_date))
-         THEN 1 ELSE 0 END) AS amber,
-       SUM(CASE
-         WHEN jc.status = 'Completed'
-          OR (jc.status = 'Open' AND NOT (
-            jc.expected_start_date IS NOT NULL
-            AND jc.expected_end_date IS NOT NULL
-            AND jc.expected_end_date > jc.expected_start_date
-            AND jc.for_quantity > 0
-            AND (jc.total_completed_qty / jc.for_quantity)
-                < (TIMESTAMPDIFF(SECOND, jc.expected_start_date, NOW())
-                   / TIMESTAMPDIFF(SECOND, jc.expected_start_date, jc.expected_end_date))
-          ))
-         THEN 1 ELSE 0 END) AS green,
-       0 AS hold
+       SUM(CASE WHEN jc.docstatus = 2                        THEN 1 ELSE 0 END) AS red,
+       SUM(CASE WHEN jc.docstatus = 1 AND jc.status = 'Work In Progress' THEN 1 ELSE 0 END) AS amber,
+       SUM(CASE WHEN jc.docstatus = 1 AND jc.status IN ('Completed','Open') THEN 1 ELSE 0 END) AS green,
+       SUM(CASE WHEN jc.docstatus = 1 AND jc.status = 'On Hold'            THEN 1 ELSE 0 END) AS hold
      FROM \`tabOperation\` op
      LEFT JOIN \`tabJob Card\` jc
        ON  jc.operation = op.name
-       AND jc.docstatus  = 1
        AND EXISTS (
          SELECT 1 FROM \`tabWork Order\` wo
          WHERE wo.name = jc.work_order AND wo.status IN ('In Process','Not Started')
        )
      GROUP BY op.name
+     HAVING (red + amber + green + hold) > 0
      ORDER BY op.name`,
   )
 
@@ -452,6 +421,85 @@ async function getQualityRejections() {
       disposition: r.status,
       rag:         (r.status === 'Rejected' ? 'red' : 'amber') as 'red' | 'amber',
     })),
+  }
+}
+
+// ── Material Request detail ───────────────────────────────────────────────────
+export async function getMaterialRequestDetail(mrName: string) {
+  const [mrRows, itemRows] = await Promise.all([
+    query<{
+      name: string; status: string; transaction_date: string
+      schedule_date: string; requested_by: string; purpose: string
+    }>(
+      `SELECT name, status, transaction_date, schedule_date, requested_by, purpose
+       FROM \`tabMaterial Request\` WHERE name = ? LIMIT 1`,
+      [mrName],
+    ),
+    query<{ item_code: string; item_name: string; qty: number; received_qty: number; uom: string; eta: string | null }>(
+      `SELECT mri.item_code, mri.item_name, mri.qty, mri.received_qty, mri.uom,
+              poi.expected_delivery_date AS eta
+       FROM \`tabMaterial Request Item\` mri
+       LEFT JOIN \`tabPurchase Order Item\` poi
+         ON poi.material_request = mri.parent AND poi.material_request_item = mri.name AND poi.docstatus = 1
+       WHERE mri.parent = ?
+       ORDER BY mri.idx`,
+      [mrName],
+    ),
+  ])
+  if (!mrRows.length) return null
+  const mr = mrRows[0]
+  return {
+    mr:          mr.name,
+    status:      mr.status,
+    purpose:     mr.purpose,
+    requestDate: mr.transaction_date,
+    requiredBy:  mr.schedule_date,
+    requestedBy: mr.requested_by,
+    items: itemRows.map(r => ({
+      itemCode:    r.item_code,
+      itemName:    r.item_name || r.item_code,
+      qty:         r.qty,
+      receivedQty: r.received_qty,
+      short:       Math.max(0, r.qty - r.received_qty),
+      uom:         r.uom,
+      eta:         r.eta ? new Date(r.eta).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—',
+    })),
+  }
+}
+
+// ── Work Order detail ────────────────────────────────────────────────────────
+export async function getWorkOrderDetail(woName: string) {
+  const rows = await query<{
+    name: string; status: string; production_item: string; item_name: string
+    qty: number; produced_qty: number; expected_delivery_date: string
+    sales_order: string; customer: string; company: string
+    pipeline_stage: string; pipeline_stage_name: string
+  }>(
+    `SELECT wo.name, wo.status, wo.production_item, wo.item_name,
+            wo.qty, wo.produced_qty, wo.expected_delivery_date,
+            wo.sales_order, so.customer_name AS customer, wo.company,
+            op.stage AS pipeline_stage, op.stage_name AS pipeline_stage_name
+     FROM \`tabWork Order\` wo
+     LEFT JOIN \`tabSales Order\`    so ON so.name           = wo.sales_order
+     LEFT JOIN \`tabOrder Pipeline\` op ON op.sales_order_id = wo.sales_order
+     WHERE wo.name = ?
+     LIMIT 1`,
+    [woName],
+  )
+  if (!rows.length) return null
+  const r = rows[0]
+  return {
+    wo:           r.name,
+    status:       r.status,
+    product:      r.item_name || r.production_item,
+    qty:          r.qty,
+    producedQty:  r.produced_qty,
+    completion:   r.qty > 0 ? Math.round((r.produced_qty / r.qty) * 100) : 0,
+    dueDate:      r.expected_delivery_date,
+    salesOrder:   r.sales_order,
+    customer:     r.customer ?? '—',
+    company:      r.company,
+    stage:        r.pipeline_stage_name || r.pipeline_stage || '—',
   }
 }
 

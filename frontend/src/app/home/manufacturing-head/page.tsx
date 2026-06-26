@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useManufacturingHomepage } from '@/hooks/useManufacturingHomepage'
+import { useWorkOrderDetail } from '@/hooks/useWorkOrderDetail'
+import { useMaterialRequestDetail } from '@/hooks/useMaterialRequestDetail'
 import type { PipelineStage, SubStage } from '@/types/manufacturing'
 import { colors } from '@/lib/brand'
 
@@ -116,19 +118,23 @@ function ChBadge({ label, rag }: { label: string; rag: 'red' | 'amber' | 'green'
 
 // ── Sub-stage chart ───────────────────────────────────────────────────────────
 function SubStageChart({ stages }: { stages: SubStage[] }) {
-  const SMAX = Math.max(...stages.map(s => s.red + s.amber + s.green + s.hold), 1)
+  const ns = stages.map(s => ({ ...s, red: Number(s.red), amber: Number(s.amber), green: Number(s.green), hold: Number(s.hold) }))
+  const SMAX = Math.max(...ns.map(s => s.red + s.amber + s.green + s.hold), 1)
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9, height: 128, paddingTop: 4 }}>
-        {stages.map((s, i) => {
+        {ns.map((s, i) => {
           const tot = s.red + s.amber + s.green + s.hold
           return (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, flex: 1, height: '100%' }}>
               <div style={{ display: 'flex', flexDirection: 'column-reverse', width: '100%', flex: 1, gap: 2, minHeight: 0 }}>
-                {s.green > 0 && <div style={{ width: '100%', height: `${(s.green / SMAX) * 100}%`, background: RAG_HEX.green, borderRadius: 3, minHeight: 3 }} />}
-                {s.hold  > 0 && <div style={{ width: '100%', height: `${(s.hold  / SMAX) * 100}%`, background: RAG_HEX.hold,  borderRadius: 3, minHeight: 3 }} />}
-                {s.amber > 0 && <div style={{ width: '100%', height: `${(s.amber / SMAX) * 100}%`, background: RAG_HEX.amber, borderRadius: 3, minHeight: 3 }} />}
-                {s.red   > 0 && <div style={{ width: '100%', height: `${(s.red   / SMAX) * 100}%`, background: RAG_HEX.red,   borderRadius: 3, minHeight: 3 }} />}
+                {([['green', s.green], ['hold', s.hold], ['amber', s.amber], ['red', s.red]] as [string, number][]).map(([key, count]) =>
+                  count > 0 ? (
+                    <div key={key} style={{ width: '100%', height: `${(count / SMAX) * 100}%`, background: RAG_HEX[key], borderRadius: 3, minHeight: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{count}</span>
+                    </div>
+                  ) : null
+                )}
               </div>
               <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>{tot}</div>
               <div style={{ fontSize: 11, color: INK2, textAlign: 'center', lineHeight: 1.15, fontWeight: 600 }}>{s.label}</div>
@@ -178,6 +184,10 @@ export default function ManufacturingHeadHomepage() {
   const [showSwitcher, setShowSwitcher] = useState(false)
   const { user, isLoading: userLoading } = useCurrentUser()
   const { data, isLoading, isError }     = useManufacturingHomepage()
+  const [drawerWO, setDrawerWO]          = useState<string | null>(null)
+  const [drawerMR, setDrawerMR]          = useState<string | null>(null)
+  const { detail: woDetail, isLoading: woLoading } = useWorkOrderDetail(drawerWO)
+  const { detail: mrDetail, isLoading: mrLoading } = useMaterialRequestDetail(drawerMR)
   const switcherOptions = [{ label: 'Sales Head', slug: 'sales-head' }]
 
   useEffect(() => {
@@ -463,7 +473,7 @@ export default function ManufacturingHeadHomepage() {
                   <thead><tr><th>WO No.</th><th>Customer</th><th>Stage</th><th>Days over</th><th>Status</th></tr></thead>
                   <tbody>
                     {delayedWOs.map((r, i) => (
-                      <tr key={i} className={`lb-${r.rag === 'green' ? 'g' : r.rag}`}>
+                      <tr key={i} className={`lb-${r.rag === 'green' ? 'g' : r.rag}`} style={{ cursor: 'pointer' }} onClick={() => setDrawerWO(r.wo)}>
                         {td(r.wo, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
                         {td(r.customer, { maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK2 })}
                         {td(r.stage, { color: INK2 })}
@@ -497,7 +507,7 @@ export default function ManufacturingHeadHomepage() {
                       <thead><tr><th>WO</th><th>Item</th><th>Short</th><th>ETA</th></tr></thead>
                       <tbody>
                         {materialShortages.slice(0, 5).map((r, i) => (
-                          <tr key={i} className={`lb-${r.rag}`}>
+                          <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }} onClick={() => r.wo.startsWith('MREQ') ? setDrawerMR(r.wo) : setDrawerWO(r.wo)}>
                             {td(r.wo, { color: NAVY, fontWeight: 600 })}
                             {td(r.item, { color: INK2, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                             {td(r.short, { color: RAG_TX[r.rag], fontWeight: 700 })}
@@ -548,7 +558,7 @@ export default function ManufacturingHeadHomepage() {
                   <thead><tr><th>WO No.</th><th>Customer</th><th>Product</th><th>Due</th><th>Stage</th><th>Completion</th></tr></thead>
                   <tbody>
                     {completingThisWeek.map((r, i) => (
-                      <tr key={i} className={`lb-${r.rag}`}>
+                      <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }} onClick={() => setDrawerWO(r.wo)}>
                         {td(r.wo, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
                         {td(r.customer, { color: INK2, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                         {td(r.product, { color: INK2 })}
@@ -583,7 +593,7 @@ export default function ManufacturingHeadHomepage() {
                   <thead><tr><th>WO No.</th><th>Product</th><th>Stage</th><th>Defect</th><th>Disposition</th></tr></thead>
                   <tbody>
                     {qualityRejections.items.map((r, i) => (
-                      <tr key={i} className={`lb-${r.rag}`}>
+                      <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }} onClick={() => setDrawerWO(r.wo)}>
                         {td(r.wo, { color: NAVY, fontWeight: 600 })}
                         {td(r.product, { color: INK2 })}
                         {td(r.stage, { color: INK2 })}
@@ -616,6 +626,153 @@ export default function ManufacturingHeadHomepage() {
 
         </div>
       </div>
+
+      {/* ── MR Detail Drawer ── */}
+      {drawerMR && (
+        <>
+          <div onClick={() => setDrawerMR(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 200 }} />
+          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 360, background: '#fff', zIndex: 201, display: 'flex', flexDirection: 'column', boxShadow: '-4px 0 24px rgba(0,0,0,.15)' }}>
+            <div style={{ background: NAVY, padding: '18px 16px 14px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{drawerMR}</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>
+                    {mrLoading ? 'Loading…' : mrDetail?.purpose ?? 'Material Request'}
+                  </div>
+                </div>
+                <button onClick={() => setDrawerMR(null)}
+                  style={{ background: 'none', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+              {mrDetail && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: mrDetail.status === 'Pending' ? '#92600A' : mrDetail.status === 'Ordered' ? '#166534' : 'rgba(255,255,255,.2)', color: '#fff' }}>
+                    {mrDetail.status}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              {mrLoading && <div style={{ fontSize: 12, color: INK3, textAlign: 'center', marginTop: 40 }}>Loading details…</div>}
+              {!mrLoading && mrDetail && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: INK3, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Request details</div>
+                  {([
+                    ['Request date', mrDetail.requestDate],
+                    ['Required by',  mrDetail.requiredBy],
+                    ['Requested by', mrDetail.requestedBy],
+                  ] as [string, string][]).map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '7px 0', borderBottom: `1px solid ${BORDER}` }}>
+                      <span style={{ color: INK2 }}>{k}</span>
+                      <span style={{ fontWeight: 500 }}>{v}</span>
+                    </div>
+                  ))}
+
+                  <div style={{ fontSize: 10, fontWeight: 600, color: INK3, textTransform: 'uppercase', letterSpacing: '.4px', margin: '14px 0 8px' }}>Items</div>
+                  {mrDetail.items.map((item, i) => (
+                    <div key={i} style={{ padding: '8px 0', borderBottom: `1px solid ${BORDER}` }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>{item.itemName}</div>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 10.5, color: INK2 }}>
+                        <span>Ordered: <strong style={{ color: INK }}>{item.qty} {item.uom}</strong></span>
+                        <span>Received: <strong style={{ color: GREEN }}>{item.receivedQty}</strong></span>
+                        <span>Short: <strong style={{ color: RED }}>{item.short}</strong></span>
+                      </div>
+                      <div style={{ fontSize: 10, color: INK3, marginTop: 3 }}>ETA: {item.eta}</div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+
+            <div style={{ padding: '12px 16px', borderTop: `1px solid ${BORDER}`, flexShrink: 0 }}>
+              <a href={erpUrl(`material-request/${encodeURIComponent(drawerMR)}`)} target="_blank" rel="noreferrer"
+                style={{ display: 'block', fontSize: 11, fontWeight: 600, padding: '8px 0', borderRadius: 8, background: NAVY, color: '#fff', textAlign: 'center', textDecoration: 'none' }}>
+                Open in ERPNext ↗
+              </a>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── WO Detail Drawer ── */}
+      {drawerWO && (
+        <>
+          <div onClick={() => setDrawerWO(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 200 }} />
+          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 360, background: '#fff', zIndex: 201, display: 'flex', flexDirection: 'column', boxShadow: '-4px 0 24px rgba(0,0,0,.15)' }}>
+            {/* Header */}
+            <div style={{ background: NAVY, padding: '18px 16px 14px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{drawerWO}</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>
+                    {woLoading ? 'Loading…' : woDetail?.customer ?? '—'}
+                  </div>
+                </div>
+                <button onClick={() => setDrawerWO(null)}
+                  style={{ background: 'none', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+              {woDetail && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: woDetail.status === 'In Process' ? '#166534' : woDetail.status === 'Stopped' ? '#991B1B' : '#92600A', color: '#fff' }}>
+                    {woDetail.status}
+                  </span>
+                  <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: 'rgba(255,255,255,.15)', color: '#fff' }}>
+                    {woDetail.stage}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              {woLoading && <div style={{ fontSize: 12, color: INK3, textAlign: 'center', marginTop: 40 }}>Loading details…</div>}
+              {!woLoading && woDetail && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: INK3, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Work order details</div>
+                  {([
+                    ['Product',       woDetail.product],
+                    ['Qty ordered',   `${woDetail.producedQty} / ${woDetail.qty}`],
+                    ['Completion',    `${woDetail.completion}%`],
+                    ['Due date',      woDetail.dueDate],
+                    ['Sales order',   woDetail.salesOrder || '—'],
+                    ['Customer',      woDetail.customer],
+                    ['Stage',         woDetail.stage],
+                  ] as [string, string][]).map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '7px 0', borderBottom: `1px solid ${BORDER}` }}>
+                      <span style={{ color: INK2 }}>{k}</span>
+                      <span style={{ fontWeight: 500, maxWidth: 180, textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
+
+                  {/* Progress bar */}
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: INK2, marginBottom: 4 }}>
+                      <span>Completion progress</span><span style={{ fontWeight: 600 }}>{woDetail.completion}%</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 99, background: BORDER, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${woDetail.completion}%`, background: woDetail.completion >= 80 ? GREEN : woDetail.completion >= 50 ? AMBER : RED, borderRadius: 99 }} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '12px 16px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8, flexShrink: 0 }}>
+              <a href={erpUrl(`work-order/${encodeURIComponent(drawerWO)}`)} target="_blank" rel="noreferrer"
+                style={{ flex: 1, fontSize: 11, fontWeight: 600, padding: '8px 0', borderRadius: 8, background: NAVY, color: '#fff', textAlign: 'center', textDecoration: 'none' }}>
+                Open in ERPNext ↗
+              </a>
+              <a href={erpUrl(`job-card?work_order=${encodeURIComponent(drawerWO)}`)} target="_blank" rel="noreferrer"
+                style={{ flex: 1, fontSize: 11, fontWeight: 600, padding: '8px 0', borderRadius: 8, background: 'none', border: `1px solid ${NAVY}`, color: NAVY, textAlign: 'center', textDecoration: 'none' }}>
+                Job cards ↗
+              </a>
+            </div>
+          </div>
+        </>
+      )}
     </>
   )
 }
