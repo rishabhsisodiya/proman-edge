@@ -2,8 +2,8 @@
 import type { AttentionItem } from '@/types/sales'
 import { colors } from '@/lib/brand'
 
-const DOT_COLOR = { red: colors.error, amber: colors.warning }
-const COUNT_COLOR = { red: colors.error, amber: colors.warning }
+const DOT_COLOR: Record<string, string> = { red: colors.error, amber: colors.warning, green: colors.success }
+const COUNT_COLOR: Record<string, string> = { red: colors.error, amber: colors.warning, green: colors.success }
 
 export default function AttentionStrip({
   items,
