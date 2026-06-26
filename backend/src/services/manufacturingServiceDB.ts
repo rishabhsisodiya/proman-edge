@@ -223,7 +223,7 @@ async function getMaterialShortages(): Promise<MaterialShortage[]> {
     schedule_date: string; eta: string | null; earliest_jc_start: string | null
   }>(
     `SELECT
-       COALESCE(wo.name, mri.sales_order, '—') AS wo,
+       COALESCE(wo.name, mr.name, '—') AS wo,
        mri.item_code,
        mri.qty,
        mri.received_qty,
