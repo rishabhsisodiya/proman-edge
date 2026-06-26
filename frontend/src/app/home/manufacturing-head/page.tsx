@@ -149,10 +149,11 @@ function SubStageChart({ stages }: { stages: SubStage[] }) {
 }
 
 // ── Pipeline tile ─────────────────────────────────────────────────────────────
-function PipelineTile({ s }: { s: PipelineStage }) {
+function PipelineTile({ s, erpBase }: { s: PipelineStage; erpBase: string }) {
   const total = s.red + s.amber + s.green + s.hold
   return (
-    <div className="ptile" style={{ background: s.color || NAVY }}>
+    <div className="ptile" style={{ background: s.color || NAVY, cursor: 'pointer' }}
+      onClick={() => window.open(`${erpBase}/app/order-pipeline?stage=${s.short}`, '_blank')}>
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(157deg,rgba(255,255,255,.14),rgba(255,255,255,0) 46%)', pointerEvents: 'none' }} />
       <div style={{ fontSize: 11, fontWeight: 700, opacity: .65, letterSpacing: '.8px' }}>{s.short}</div>
       <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, margin: '3px 0 8px', minHeight: 28 }}>{s.label}</div>
@@ -422,7 +423,7 @@ export default function ManufacturingHeadHomepage() {
           {/* ── Operations pipeline ── */}
           <Card className="mfg-card">
             <CardTitle icon="ti-layout-kanban" title="Operations pipeline · S1 to S9"
-              right={<ViewAll href={erpUrl('work-order/view/kanban')} label="Open pipeline ↗" />} />
+              right={<ViewAll href={erpUrl('order-pipeline')} label="Open pipeline ↗" />} />
             <div className="mfg-pipe">
               {PIPELINE_STAGES.map((def) => {
                 // Merge live counts from DB if available, otherwise zeros
@@ -431,7 +432,7 @@ export default function ManufacturingHeadHomepage() {
                   short: def.short, label: def.label, color: def.color,
                   red: live?.red ?? 0, amber: live?.amber ?? 0, green: live?.green ?? 0, hold: live?.hold ?? 0,
                 }
-                return <PipelineTile key={def.short} s={s} />
+                return <PipelineTile key={def.short} s={s} erpBase={erpBase} />
               })}
             </div>
           </Card>
