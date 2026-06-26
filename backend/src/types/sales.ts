@@ -35,6 +35,7 @@ export interface FollowUpItem {
   region: string
   stage: string
   severity: 'red' | 'amber' | 'green'
+  rank?: number
 }
 
 export interface ExpiringQuotation {
