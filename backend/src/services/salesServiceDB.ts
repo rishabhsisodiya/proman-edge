@@ -188,7 +188,7 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
     ? `${now2.getFullYear()}-${now2.getFullYear() + 1}`
     : `${now2.getFullYear() - 1}-${now2.getFullYear()}`
 
-  const [enqRows, ordRows, revRows, openQuotRows, enqSpark, ordSpark, quotSpark, convSparkRaw, revSparkRaw, targetRows] = await Promise.all([
+  const [enqRows, ordRows, revRows, openQuotRows, convRows, enqSpark, ordSpark, quotSpark, convSparkRaw, revSparkRaw, targetRows] = await Promise.all([
     query<{ cnt: number }>(
       `SELECT COUNT(*) AS cnt FROM tabLead
        WHERE docstatus = 0
@@ -215,6 +215,15 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
        WHERE docstatus = 1 AND status = 'Open'`,
       [],
     ),
+    // Conversion rate for current period: % of quotations with status = Ordered
+    query<{ total: number; converted: number }>(
+      `SELECT COUNT(*) AS total,
+              SUM(status = 'Ordered') AS converted
+       FROM tabQuotation
+       WHERE docstatus = 1
+         AND transaction_date BETWEEN ? AND ?`,
+      [from, to],
+    ),
     query<{ m: string; val: number }>(enqSparkSql),
     query<{ m: string; val: number }>(ordSparkSql),
     // Open quotations trend (always monthly — no toggle on this card)
@@ -224,28 +233,22 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
          AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
        GROUP BY m ORDER BY m`,
     ),
-    // Conversion rate sparkline (always monthly)
+    // Conversion rate sparkline: % of quotations (by submit month) that have status = Ordered
     query<{ m: string; val: number }>(
-      `SELECT o.m, ROUND(COALESCE(o.cnt / NULLIF(l.cnt, 0) * 100, 0)) AS val
-       FROM (
-         SELECT DATE_FORMAT(transaction_date,'%Y-%m') AS m, COUNT(*) AS cnt
-         FROM \`tabSales Order\` WHERE docstatus=1
-           AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-         GROUP BY m
-       ) o
-       LEFT JOIN (
-         SELECT DATE_FORMAT(creation,'%Y-%m') AS m, COUNT(*) AS cnt
-         FROM tabLead WHERE docstatus=0
-           AND creation >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-         GROUP BY m
-       ) l ON l.m = o.m
-       ORDER BY o.m`,
+      `SELECT DATE_FORMAT(transaction_date,'%Y-%m') AS m,
+              ROUND(SUM(status = 'Ordered') / COUNT(*) * 100) AS val
+       FROM tabQuotation
+       WHERE docstatus = 1
+         AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+       GROUP BY m
+       ORDER BY m`,
     ),
     query<{ m: string; val: string }>(revSparkSql),
     query<{ target_amount: number }>(
-      `SELECT td.target_amount FROM \`tabTarget Detail\` td
+      `SELECT COALESCE(SUM(td.target_amount), 0) AS target_amount
+       FROM \`tabTarget Detail\` td
        JOIN \`tabSales Person\` sp ON sp.name = td.parent
-       WHERE td.fiscal_year = ? LIMIT 1`,
+       WHERE td.fiscal_year = ? AND sp.is_group = 0`,
       [fy],
     ),
   ])
@@ -268,8 +271,8 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
     sparkKeys,
   ).map(v => v / 10_000_000)
 
-  // Conversion: Leads → Orders (current period)
-  const conv = enq > 0 ? Math.round((ord / enq) * 100) : 0
+  // Conversion: Quotations → Orders (current period)
+  const conv = convRows[0].total > 0 ? Math.round((convRows[0].converted / convRows[0].total) * 100) : 0
 
   // Previous period bounds — differs per period type
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -294,13 +297,14 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
     prevTo   = `${prevSameDay.getFullYear()}-${pad(prevSameDay.getMonth() + 1)}-${pad(prevSameDay.getDate())}`
   }
 
-  const [prevLeadRows, prevOrdRows] = await Promise.all([
+  const [prevLeadRows, prevOrdRows, prevConvRows] = await Promise.all([
     query<{ cnt: number }>(`SELECT COUNT(*) AS cnt FROM tabLead WHERE docstatus=0 AND creation BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)`, [prevFrom, prevTo]),
     query<{ cnt: number; val: number }>(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS val FROM \`tabSales Order\` WHERE docstatus=1 AND transaction_date BETWEEN ? AND ?`, [prevFrom, prevTo]),
+    query<{ total: number; converted: number }>(`SELECT COUNT(*) AS total, SUM(status = 'Ordered') AS converted FROM tabQuotation WHERE docstatus=1 AND transaction_date BETWEEN ? AND ?`, [prevFrom, prevTo]),
   ])
 
-  // Conversion delta — uses same period label as enquiries
-  const prevConv = prevLeadRows[0].cnt > 0 ? Math.round((prevOrdRows[0].cnt / prevLeadRows[0].cnt) * 100) : 0
+  // Conversion delta: % of quotations with status=Ordered (same as current period formula)
+  const prevConv = prevConvRows[0].total > 0 ? Math.round((prevConvRows[0].converted / prevConvRows[0].total) * 100) : 0
   const convDiff  = conv - prevConv
   const periodLabel = period === 'mtd' ? 'last month' : period === 'qtr' ? 'last quarter' : 'last year'
   const convDelta = convDiff === 0 ? `flat vs ${periodLabel}` : `${convDiff > 0 ? '+' : ''}${convDiff}% vs ${periodLabel}`
@@ -360,15 +364,15 @@ async function getRevenueTarget(company: string): Promise<SalesHomepageData['rev
     : `${now.getFullYear() - 1}-${now.getFullYear()}`
 
   const targetRows = await query<{ target_amount: number }>(
-    `SELECT td.target_amount
+    `SELECT COALESCE(SUM(td.target_amount), 0) AS target_amount
      FROM \`tabTarget Detail\` td
      JOIN \`tabSales Person\` sp ON sp.name = td.parent
      WHERE td.fiscal_year = ?
-     LIMIT 1`,
+       AND sp.is_group = 0`,
     [fy],
   )
 
-  // Annual target → divide by 12 for monthly target
+  // Annual target (sum of all sales persons) → divide by 12 for monthly target
   const annualTarget = targetRows[0]?.target_amount ?? 0
   const monthlyTarget = annualTarget / 12
 
@@ -502,13 +506,18 @@ async function getAttention(company: string) {
 
 async function getDecisionBand(company: string): Promise<SalesHomepageData['decisionBand']> {
   const now = new Date()
+  const fy = now.getMonth() >= 3
+    ? `${now.getFullYear()}-${now.getFullYear() + 1}`
+    : `${now.getFullYear() - 1}-${now.getFullYear()}`
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
   const day = now.getDate()
 
   const targetRows = await query<{ target_amount: number }>(
-    `SELECT td.target_amount FROM \`tabTarget Detail\` td
+    `SELECT COALESCE(SUM(td.target_amount), 0) AS target_amount
+     FROM \`tabTarget Detail\` td
      JOIN \`tabSales Person\` sp ON sp.name = td.parent
-     LIMIT 1`,
+     WHERE td.fiscal_year = ? AND sp.is_group = 0`,
+    [fy],
   )
   const monthlyTarget = (targetRows[0]?.target_amount ?? 0) / 12
 

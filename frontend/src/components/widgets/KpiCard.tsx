@@ -1,8 +1,9 @@
 'use client'
 import type { KPI } from '@/types/sales'
+import { colors } from '@/lib/brand'
 
 const ARROW = { up: '↗', dn: '↘', neu: '→' }
-const DELTA_COLOR = { up: '#1A6B3A', dn: '#A32D2D', neu: '#854F0B' }
+const DELTA_COLOR = { up: colors.success, dn: colors.error, neu: colors.warning }
 
 export default function KpiCard({ kpi, onClick }: { kpi: KPI; onClick?: () => void }) {
   const max = Math.max(...kpi.spark)

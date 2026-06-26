@@ -5,45 +5,40 @@ import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useManufacturingHomepage } from '@/hooks/useManufacturingHomepage'
 import type { PipelineStage, SubStage } from '@/types/manufacturing'
+import { colors } from '@/lib/brand'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-const NAVY       = '#2A2F69'
-const NAVY_TINT  = '#EAEAF0'
-const ORANGE     = '#FF7604'
-const BG         = '#F7F7F9'
-const BORDER     = '#DDDDE8'
-const INK        = '#2A2F69'
-const INK2       = '#5F638F'
-const INK3       = '#8F92B5'
-const GREEN      = '#1A6B3A'
-const GREEN_BG   = '#E3F2E9'
-const AMBER      = '#B45309'
-const AMBER_BG   = '#FBEBD7'
-const RED        = '#A32D2D'
-const RED_BG     = '#F8EAEA'
+const NAVY       = colors.navy
+const NAVY_DEEP  = colors.navyDeep
+const NAVY_TINT  = colors.navyTint
+const ORANGE     = colors.orange
+const BG         = colors.navySoft
+const BORDER     = colors.border
+const INK        = colors.textPrimary
+const INK2       = colors.textSecondary
+const INK3       = colors.textDisabled
+const GREEN      = colors.success
+const GREEN_BG   = colors.successBg
+const AMBER      = colors.warning
+const AMBER_BG   = colors.warningBg
+const RED        = colors.error
+const RED_BG     = colors.errorBg
 const HOLD_BG    = '#EEF0F3'
 const HOLD_TX    = '#4B5563'
 
 const RAG_BG:  Record<string, string> = { red: RED_BG,   amber: AMBER_BG, green: GREEN_BG, hold: HOLD_BG }
 const RAG_TX:  Record<string, string> = { red: RED,      amber: AMBER,    green: GREEN,    hold: HOLD_TX }
-const RAG_HEX: Record<string, string> = { red: '#A32D2D',amber: '#B45309',green: '#1A6B3A',hold: '#6B7280' }
+const RAG_HEX: Record<string, string> = { red: RED, amber: AMBER, green: GREEN, hold: '#6B7280' }
 
-const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
-  'manufacturing-head': [{ label: 'Sales Head', slug: 'sales-head' }],
-  'md': [
-    { label: 'Sales Head',         slug: 'sales-head'         },
-    { label: 'Manufacturing Head', slug: 'manufacturing-head' },
-  ],
-}
 
 // S1–S9 fixed stage definitions from template (colors + names match exactly)
 const PIPELINE_STAGES = [
   { short: 'S1', label: 'Eng & design',  color: '#3a4080' },
-  { short: 'S2', label: 'Prod planning', color: '#2A2F69' },
-  { short: 'S3', label: 'Procurement',   color: '#1A6B3A' },
+  { short: 'S2', label: 'Prod planning', color: NAVY },
+  { short: 'S3', label: 'Procurement',   color: GREEN },
   { short: 'S4', label: 'Vendor dev',    color: '#6B4226' },
   { short: 'S5', label: 'Stores',        color: '#4A235A' },
-  { short: 'S6', label: 'Manufacturing', color: '#242859' },
+  { short: 'S6', label: 'Manufacturing', color: NAVY_DEEP },
   { short: 'S7', label: 'Quality',       color: '#7D6608' },
   { short: 'S8', label: 'Dispatch',      color: '#185FA5' },
   { short: 'S9', label: 'Installation',  color: '#6E2C00' },
@@ -182,11 +177,7 @@ export default function ManufacturingHeadHomepage() {
   const [showSwitcher, setShowSwitcher] = useState(false)
   const { user, isLoading: userLoading } = useCurrentUser()
   const { data, isLoading, isError }     = useManufacturingHomepage()
-  const cookieRole = typeof document !== 'undefined'
-    ? document.cookie.split(';').find(c => c.trim().startsWith('proman_role='))?.split('=')[1]
-    : undefined
-  const roleSlug = user?.roleSlug ?? cookieRole ?? ''
-  const switcherOptions = SWITCHER_OPTIONS[roleSlug] ?? []
+  const switcherOptions = [{ label: 'Sales Head', slug: 'sales-head' }]
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -242,7 +233,7 @@ export default function ManufacturingHeadHomepage() {
           box-shadow: 0 2px 8px rgba(0,0,0,.14); transition: transform .14s ease, box-shadow .14s ease; }
         .ptile:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.24); }
         .mfg-card { transition: box-shadow .16s ease, border-color .16s ease; }
-        .mfg-card:hover { box-shadow: 0 8px 22px rgba(42,47,105,.10) !important; border-color: #8F92B5 !important; }
+        .mfg-card:hover { box-shadow: 0 8px 22px rgba(42,47,105,.10) !important; border-color: ${INK3} !important; }
         .mfg-card.hero:hover { box-shadow: 0 10px 30px rgba(255,118,4,.16) !important; }
         .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
         .tbl th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: ${INK3};
@@ -262,8 +253,8 @@ export default function ManufacturingHeadHomepage() {
           transition: background .12s, border-color .12s, box-shadow .12s; }
         .action-btn i { font-size: 18px; color: ${NAVY}; flex-shrink: 0; }
         .action-btn:hover { background: ${NAVY_TINT}; border-color: ${NAVY}; box-shadow: 0 3px 10px rgba(42,47,105,.10); }
-        .action-btn.primary { background: linear-gradient(135deg,#FF8A2B 0%,#FF7604 100%);
-          border-color: #FF7604; color: #fff; box-shadow: 0 3px 10px rgba(255,118,4,.30); }
+        .action-btn.primary { background: linear-gradient(135deg,#FF8A2B 0%,${ORANGE} 100%);
+          border-color: ${ORANGE}; color: #fff; box-shadow: 0 3px 10px rgba(255,118,4,.30); }
         .action-btn.primary i { color: #fff; }
         .action-btn.primary:hover { background: linear-gradient(135deg,#FF7E18 0%,#E96C00 100%); border-color: #E96C00; }
         .kpi-item { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.13);
@@ -304,14 +295,8 @@ export default function ManufacturingHeadHomepage() {
               <span style={{ background: ORANGE, color: '#fff', fontSize: 12.5, fontWeight: 700, padding: '5px 13px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <i className="ti ti-sun" /> Morning · 07:00–15:30
               </span>
-              <span style={{ fontSize: 12.5, color: '#D6D8EE', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 7, height: 7, borderRadius: 99, background: '#46d17f', display: 'inline-block' }} />
-                Auto-refresh 5 min
-              </span>
-
               {/* Dashboard switcher */}
-              {switcherOptions.length > 0 && (
-                <div style={{ position: 'relative' }} ref={switcherRef}>
+              <div style={{ position: 'relative' }} ref={switcherRef}>
                   <button onClick={() => setShowSwitcher(v => !v)}
                     style={{ fontSize: 11, color: '#fff', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                     <i className="ti ti-layout-grid" style={{ fontSize: 13 }} />
@@ -330,7 +315,6 @@ export default function ManufacturingHeadHomepage() {
                     </div>
                   )}
                 </div>
-              )}
 
               {/* Logout */}
               <button
@@ -391,7 +375,7 @@ export default function ManufacturingHeadHomepage() {
           )}
 
           {/* ── KPI band ── */}
-          <div style={{ background: 'linear-gradient(135deg,#2A2F69 0%,#242859 55%,#1b1f47 100%)', borderRadius: 13, padding: '12px 14px 10px', position: 'relative', overflow: 'hidden', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
+          <div style={{ background: `linear-gradient(135deg,${NAVY} 0%,${NAVY_DEEP} 55%,#1b1f47 100%)`, borderRadius: 13, padding: '12px 14px 10px', position: 'relative', overflow: 'hidden', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)' }}>
             <div style={{ position: 'absolute', top: '-45%', right: '-6%', width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,118,4,.12),transparent 68%)', pointerEvents: 'none' }} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9, position: 'relative', zIndex: 1, flexWrap: 'wrap', gap: 6 }}>
               <span style={{ fontSize: 12.5, fontWeight: 600, color: '#C7CBEC', textTransform: 'uppercase', letterSpacing: '.4px' }}>Shop-floor snapshot</span>
@@ -476,7 +460,7 @@ export default function ManufacturingHeadHomepage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 0 }}>
               <div className="mfg-sub2">
-                <Card className="mfg-card" style={{ borderTop: '3px solid #242859' }}>
+                <Card className="mfg-card" style={{ borderTop: `3px solid ${NAVY_DEEP}` }}>
                   <CardTitle icon="ti-chart-bar" title="Mfg sub-stages (S6)" />
                   <div style={{ overflowX: 'auto' }}>
                     <div style={{ minWidth: mfgSubStages.length * 56 }}>
