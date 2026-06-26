@@ -225,8 +225,8 @@ export default function SalesHeadHomepage() {
 
   async function handleExtend(quotation: string) {
     try {
-      const result = await extendQuotation(quotation, { days: 14 })
-      toast(result.validTill ? `Validity extended to ${result.validTill}` : 'Validity extended by 14 days')
+      const result = await extendQuotation(quotation, { days: 7 })
+      toast(result.validTill ? `Validity extended to ${result.validTill}` : 'Validity extended by 7 days')
     } catch {
       toast('Extend failed — check ERPNext connection')
     }
