@@ -109,6 +109,7 @@ export const salesHomepageMock: SalesHomepageData = {
     { quotation: 'Q-2026-0037', customer: 'Star Cement',       product: 'VF-1830',      value: '₹7L',  daysOverdue: 2,  validTill: '12 Jul', owner: 'A. Pillai', region: 'Odisha',       stage: 'Quoted',      severity: 'amber' },
     { quotation: 'Q-2026-0033', customer: 'JK Lakshmi',        product: 'HP-250',       value: '₹21L', daysOverdue: 1,  validTill: '14 Jul', owner: 'S. Nair',   region: 'Rajasthan',    stage: 'Negotiation', severity: 'amber' },
   ],
+  followUpsTotal: 12,
 
   expiringQuotations: [
     { quotation: 'Q-2026-0088', customer: 'Heidelberg Cement', value: '₹22L', validTill: 'Today' },

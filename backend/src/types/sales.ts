@@ -34,7 +34,7 @@ export interface FollowUpItem {
   owner: string
   region: string
   stage: string
-  severity: 'red' | 'amber'
+  severity: 'red' | 'amber' | 'green'
 }
 
 export interface ExpiringQuotation {
@@ -122,7 +122,7 @@ export interface QuotationDetail {
   quotedDate: string
   validTill: string
   daysOverdue: number
-  severity: 'red' | 'amber'
+  severity: 'red' | 'amber' | 'green'
   owner: string
   contact: string | null
   timeline: { date: string; event: string }[]

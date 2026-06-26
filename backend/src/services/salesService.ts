@@ -271,7 +271,8 @@ async function fetchFromERPNext(division: string): Promise<SalesHomepageData> {
       })),
     },
 
-    followUps: followUpItems,
+    followUps:      followUpItems,
+    followUpsTotal: followups.summary?.count ?? followUpItems.length,
 
     expiringQuotations: expiringItems,
 
