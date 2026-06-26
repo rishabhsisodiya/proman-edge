@@ -195,6 +195,21 @@ export default function ManufacturingHeadHomepage() {
   const erpBase  = data.erpBaseUrl.replace(/\/$/, '')
   const erpUrl   = (path: string) => `${erpBase}/app/${path}`
   const syncTime = new Date(data.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+
+  const _now       = new Date()
+  const _toDate    = _now.toISOString().slice(0, 10)
+  const _fromDate  = new Date(_now.getFullYear(), _now.getMonth() - 1, _now.getDate()).toISOString().slice(0, 10)
+  const _company   = encodeURIComponent('Proman Infrastructure Services Private Limited')
+
+  const QUICK_ACTION_URLS: Record<string, string> = {
+    'Update WO stage':      erpUrl('work-order'),
+    'Log downtime':         erpUrl('downtime-entry/new-downtime-entry-1'),
+    'Create rework':        erpUrl('quality-inspection?status=Rework'),
+    'View pipeline':        erpUrl('manufacturing'),
+    'Shortage report':      erpUrl(`query-report/Requested%20Items%20to%20Order%20and%20Receive?company=${_company}&from_date=${_fromDate}&to_date=${_toDate}`),
+    'Completion report':    erpUrl('work-order/view/report?status=Completed'),
+    'Escalate to dispatch': erpUrl('delivery-note/new-delivery-note-cqertjvrf'),
+  }
   const { kpis, pipelineStages, delayedWOs, mfgSubStages, materialShortages, attendance, downtime, completingThisWeek, qualityRejections } = data
 
   // KPI definitions
@@ -588,7 +603,7 @@ export default function ManufacturingHeadHomepage() {
               <CardTitle icon="ti-bolt" title="Quick actions" />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                 {QUICK_ACTIONS.map(a => (
-                  <a key={a.label} href={erpUrl(a.path)} target="_blank" rel="noreferrer"
+                  <a key={a.label} href={QUICK_ACTION_URLS[a.label] ?? erpUrl(a.path)} target="_blank" rel="noreferrer"
                     className={`action-btn${a.primary ? ' primary' : ''}`}
                     style={{ gridColumn: a.primary ? '1 / -1' : undefined }}>
                     <i className={`ti ${a.icon}`} />
