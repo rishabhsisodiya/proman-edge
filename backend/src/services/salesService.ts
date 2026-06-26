@@ -368,11 +368,18 @@ export async function extendQuotation(
     const d = new Date(); d.setDate(d.getDate() + (opts.days ?? 7))
     return { ok: true, validTill: opts.valid_till ?? d.toISOString().slice(0, 10) }
   }
-  const env = await frappePost<FrappeEnvelope<{ valid_till?: string }, unknown>>(
-    `${SALES_ACTIONS}.extend_quotation`,
-    { quotation, ...opts },
-  )
-  return { ok: true, validTill: env.summary.valid_till }
+  let validTill = opts.valid_till
+  if (!validTill && opts.days) {
+    const d = new Date(); d.setDate(d.getDate() + opts.days)
+    validTill = d.toISOString().slice(0, 10)
+  }
+  await frappePost('frappe.client.set_value', {
+    doctype:   'Quotation',
+    name:      quotation,
+    fieldname: 'valid_till',
+    value:     validTill,
+  })
+  return { ok: true, validTill }
 }
 
 export async function convertToSalesOrder(

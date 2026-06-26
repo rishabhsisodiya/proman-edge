@@ -87,7 +87,7 @@ export async function frappePost<T = FrappeEnvelope>(
         if (inner.message) msg = inner.message
       } catch { /* ignore parse errors */ }
     }
-    throw new Error(msg)
+    throw new Error(msg.replace(/<[^>]+>/g, '').trim())
   }
 
   log('POST', method, ms, res.status)

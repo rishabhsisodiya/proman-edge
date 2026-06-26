@@ -18,11 +18,18 @@ export async function extendQuotation(
   quotation: string,
   opts: { valid_till?: string; days?: number } = {},
 ): Promise<{ validTill?: string }> {
-  const res = await api.post<{ success: boolean; validTill?: string }>(
-    `/api/v1/sales/quotation/${encodeURIComponent(quotation)}/extend`,
-    opts,
-  )
-  return { validTill: res.data.validTill }
+  try {
+    const res = await api.post<{ success: boolean; validTill?: string; error?: string }>(
+      `/api/v1/sales/quotation/${encodeURIComponent(quotation)}/extend`,
+      opts,
+    )
+    if (!res.data.success) throw new Error(res.data.error ?? 'Extend failed')
+    return { validTill: res.data.validTill }
+  } catch (err: unknown) {
+    const axiosError = err as { response?: { data?: { error?: string } }; message?: string }
+    const msg = axiosError?.response?.data?.error ?? axiosError?.message ?? 'Extend failed'
+    throw new Error(msg)
+  }
 }
 
 export async function convertToSalesOrder(quotation: string, deliveryDate?: string): Promise<{ salesOrder?: string }> {

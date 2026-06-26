@@ -229,8 +229,11 @@ export default function SalesHeadHomepage() {
     try {
       const result = await extendQuotation(quotation, { days: 7 })
       toast(result.validTill ? `Validity extended to ${result.validTill}` : 'Validity extended by 7 days')
-    } catch {
-      toast('Extend failed — check ERPNext connection')
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : ''
+      // Strip HTML tags from Frappe error messages
+      const clean = raw.replace(/<[^>]+>/g, '').trim()
+      toast(clean || 'Extend failed — check ERPNext connection')
     }
   }
 
