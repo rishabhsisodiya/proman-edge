@@ -504,7 +504,7 @@ export default function ManufacturingHeadHomepage() {
                     right={<ChBadge label={`${materialShortages.filter(s => s.rag === 'red').length} blocking`} rag="red" />} />
                   <div className="tbl-wrap">
                     <table className="tbl">
-                      <thead><tr><th>WO</th><th>Item</th><th>Short</th><th>ETA</th></tr></thead>
+                      <thead><tr><th>MR</th><th>Item</th><th>Short</th><th>ETA</th></tr></thead>
                       <tbody>
                         {materialShortages.slice(0, 5).map((r, i) => (
                           <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }} onClick={() => r.wo.startsWith('MREQ') ? setDrawerMR(r.wo) : setDrawerWO(r.wo)}>
