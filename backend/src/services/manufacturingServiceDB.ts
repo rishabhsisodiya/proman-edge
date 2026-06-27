@@ -25,21 +25,29 @@ async function getKpis() {
        WHERE docstatus = 1 AND status = 'Completed'`,
     ),
 
-    // W-MH-03 Delayed (Red): past expected_delivery_date by more than grace days, not stopped
+    // W-MH-03 Delayed (Red): past expected_delivery_date by more than grace days, not on hold
     query<{ cnt: number }>(
-      `SELECT COUNT(*) AS cnt FROM \`tabWork Order\`
-       WHERE docstatus = 1 AND status IN ('In Process','Not Started')
-         AND expected_delivery_date IS NOT NULL
-         AND DATEDIFF(CURDATE(), expected_delivery_date) > ?`,
+      `SELECT COUNT(*) AS cnt FROM \`tabWork Order\` wo
+       WHERE wo.docstatus = 1 AND wo.status IN ('In Process','Not Started')
+         AND wo.expected_delivery_date IS NOT NULL
+         AND DATEDIFF(CURDATE(), wo.expected_delivery_date) > ?
+         AND NOT EXISTS (
+           SELECT 1 FROM \`tabJob Card\` jc
+           WHERE jc.work_order = wo.name AND jc.status = 'On Hold'
+         )`,
       [GRACE_DAYS],
     ),
 
-    // W-MH-04 At Risk (Amber): not red, within at-risk window OR behind production pace
+    // W-MH-04 At Risk (Amber): not red, not on hold, within at-risk window OR behind production pace
     query<{ cnt: number }>(
       `SELECT COUNT(DISTINCT wo.name) AS cnt
        FROM \`tabWork Order\` wo
        WHERE wo.docstatus = 1 AND wo.status IN ('In Process','Not Started')
          AND DATEDIFF(CURDATE(), wo.expected_delivery_date) <= ?
+         AND NOT EXISTS (
+           SELECT 1 FROM \`tabJob Card\` jc
+           WHERE jc.work_order = wo.name AND jc.status = 'On Hold'
+         )
          AND (
            (wo.expected_delivery_date IS NOT NULL
             AND wo.expected_delivery_date BETWEEN
@@ -61,10 +69,17 @@ async function getKpis() {
       [GRACE_DAYS, GRACE_DAYS, ATRISK_DAYS],
     ),
 
-    // W-MH-05 On Hold: status Stopped (ERPNext v15 has no On Hold WO status)
+    // W-MH-05 On Hold: status Stopped OR any Job Card with status On Hold
     query<{ cnt: number }>(
-      `SELECT COUNT(*) AS cnt FROM \`tabWork Order\`
-       WHERE docstatus = 1 AND status = 'Stopped'`,
+      `SELECT COUNT(*) AS cnt FROM \`tabWork Order\` wo
+       WHERE wo.docstatus = 1
+         AND (
+           wo.status = 'Stopped'
+           OR EXISTS (
+             SELECT 1 FROM \`tabJob Card\` jc
+             WHERE jc.work_order = wo.name AND jc.status = 'On Hold'
+           )
+         )`,
     ),
   ])
 
@@ -188,28 +203,30 @@ async function getMfgSubStages(): Promise<SubStage[]> {
 // ── W-MH-08 Material shortages ───────────────────────────────────────────────
 async function getMaterialShortages(): Promise<MaterialShortage[]> {
   const rows = await query<{
-    wo: string; item_code: string; qty: number; received_qty: number
+    wo: string; item_name: string; qty: number; received_qty: number; uom: string
     schedule_date: string; eta: string | null; earliest_jc_start: string | null
   }>(
     `SELECT
        COALESCE(wo.name, mr.name, '—') AS wo,
-       mri.item_code,
+       mri.item_name,
        mri.qty,
        mri.received_qty,
+       mri.uom,
        mri.schedule_date,
-       poi.expected_delivery_date                AS eta,
-       MIN(jc.expected_start_date)               AS earliest_jc_start
+       poi.expected_delivery_date        AS eta,
+       MIN(jc.expected_start_date)       AS earliest_jc_start
      FROM \`tabMaterial Request\`     mr
      JOIN \`tabMaterial Request Item\` mri ON mri.parent = mr.name
      LEFT JOIN \`tabWork Order\`       wo  ON wo.sales_order = mri.sales_order
                                           AND wo.docstatus   = 1
                                           AND wo.status IN ('In Process','Not Started')
-     LEFT JOIN \`tabJob Card\`         jc  ON jc.work_order  = wo.name AND jc.docstatus = 1
+     LEFT JOIN \`tabJob Card\`         jc  ON jc.work_order = wo.name AND jc.docstatus = 1
      LEFT JOIN \`tabPurchase Order Item\` poi
        ON poi.material_request      = mr.name
       AND poi.material_request_item = mri.name
       AND poi.docstatus             = 1
      WHERE mr.docstatus = 1
+       AND mr.material_request_type = 'Purchase'
        AND mri.received_qty < mri.qty
      GROUP BY mr.name, mri.name
      ORDER BY wo.expected_delivery_date ASC
@@ -224,8 +241,8 @@ async function getMaterialShortages(): Promise<MaterialShortage[]> {
     const isBlocking = etaMs && jcStartMs ? etaMs > jcStartMs : false
     return {
       wo:    r.wo,
-      item:  r.item_code,
-      short: `${Math.ceil(short)} units`,
+      item:  r.item_name,
+      short: `${Math.ceil(short)} ${r.uom || 'units'}`,
       eta:   etaStr ? new Date(etaStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—',
       rag:   (isBlocking ? 'red' : 'amber') as 'red' | 'amber' | 'green',
     }
@@ -253,8 +270,9 @@ async function getPipelineStages(): Promise<PipelineStage[]> {
           AND DATEDIFF(NOW(), ph.stage_start_date) BETWEEN ops.planned_days AND ops.planned_days + ?
          THEN 1 ELSE 0 END)                  AS amber,
        SUM(CASE
-         WHEN ph.stage_start_date IS NULL
-          OR DATEDIFF(NOW(), ph.stage_start_date) < ops.planned_days
+         WHEN op.name IS NOT NULL
+          AND (ph.stage_start_date IS NULL
+           OR DATEDIFF(NOW(), ph.stage_start_date) < ops.planned_days)
          THEN 1 ELSE 0 END)                  AS green
      FROM \`tabOrder Pipeline Stage\` ops
      LEFT JOIN \`tabOrder Pipeline\`   op  ON op.stage           = ops.stage_id
@@ -396,14 +414,23 @@ async function getAttendance() {
 // ── W-MH-13 Quality rejections / rework today ───────────────────────────────
 async function getQualityRejections() {
   const rows = await query<{
-    reference_name: string; item_code: string; status: string
+    name: string; item_code: string; status: string; inspection_type: string
+    reference_type: string; reference_name: string; wo_no: string | null
   }>(
-    `SELECT reference_name, item_code, status
-     FROM \`tabQuality Inspection\`
-     WHERE report_date = CURDATE()
-       AND docstatus = 1
-       AND status IN ('Rejected','Rework')
-     ORDER BY creation DESC
+    `SELECT
+       qi.name, qi.item_code, qi.status, qi.inspection_type,
+       qi.reference_type, qi.reference_name,
+       COALESCE(
+         (SELECT se.work_order FROM \`tabStock Entry\` se
+          WHERE se.name = qi.reference_name AND qi.reference_type = 'Stock Entry'),
+         (SELECT jc.work_order FROM \`tabJob Card\` jc
+          WHERE jc.name = qi.reference_name AND qi.reference_type = 'Job Card')
+       ) AS wo_no
+     FROM \`tabQuality Inspection\` qi
+     WHERE qi.report_date = CURDATE()
+       AND qi.docstatus = 1
+       AND qi.status IN ('Rejected','Rework')
+     ORDER BY qi.creation DESC
      LIMIT 10`,
   )
 
@@ -414,9 +441,9 @@ async function getQualityRejections() {
     rejections,
     rework,
     items: rows.map(r => ({
-      wo:          r.reference_name,
+      wo:          r.wo_no ?? `${r.reference_type} ${r.reference_name}`,
       product:     r.item_code,
-      stage:       '—',
+      stage:       r.inspection_type ?? '—',
       defect:      '—',
       disposition: r.status,
       rag:         (r.status === 'Rejected' ? 'red' : 'amber') as 'red' | 'amber',
