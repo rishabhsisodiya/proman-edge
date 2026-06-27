@@ -831,15 +831,15 @@ export default function SalesHeadHomepage() {
                         <span>{r.region}</span>
                         <span style={{ fontVariantNumeric: 'tabular-nums' }}>₹{total}L</span>
                       </div>
-                      <div style={{ display: 'flex', fontSize: 8.5, fontWeight: 700, margin: '2px 0', lineHeight: 1.4 }}>
-                        {wq > 0 && <span style={{ color: NAVY,    width: `${wq}%`, display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>₹{r.quoted}L</span>}
-                        {wn > 0 && <span style={{ color: WARNING, width: `${wn}%`, display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>₹{r.negotiation}L</span>}
-                        {ww > 0 && <span style={{ color: SUCCESS, width: `${ww}%`, display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>₹{r.won}L</span>}
+                      <div style={{ display: 'flex', fontSize: 8.5, fontWeight: 700, margin: '2px 0', lineHeight: 1 }}>
+                        {wq > 0 && <span style={{ color: NAVY,    width: `${wq}%`, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>{wq >= 8 ? `₹${r.quoted}L` : ''}</span>}
+                        {wn > 0 && <span style={{ color: WARNING, whiteSpace: 'nowrap', minWidth: 'max-content', paddingRight: 5 }}>₹{r.negotiation}L</span>}
+                        {ww > 0 && <span style={{ color: SUCCESS, whiteSpace: 'nowrap', minWidth: 'max-content', paddingRight: 5 }}>₹{r.won}L</span>}
                       </div>
                       <div style={{ display: 'flex', height: 11, borderRadius: 99, overflow: 'hidden', gap: 1 }}>
-                        <div style={{ width: `${wq}%`, background: NAVY, borderRadius: '99px 0 0 99px' }} />
-                        <div style={{ width: `${wn}%`, background: WARNING }} />
-                        <div style={{ width: `${ww}%`, background: SUCCESS, borderRadius: '0 99px 99px 0' }} />
+                        {wq > 0 && <div title={`Quoted: ₹${r.quoted}L`}           style={{ width: `${wq}%`, background: NAVY,    borderRadius: '99px 0 0 99px', cursor: 'default' }} />}
+                        {wn > 0 && <div title={`Negotiation: ₹${r.negotiation}L`} style={{ width: `${wn}%`, background: WARNING, cursor: 'default' }} />}
+                        {ww > 0 && <div title={`Won: ₹${r.won}L`}                 style={{ width: `${ww}%`, background: SUCCESS, borderRadius: '0 99px 99px 0', cursor: 'default' }} />}
                       </div>
                     </div>
                   )

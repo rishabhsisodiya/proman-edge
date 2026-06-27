@@ -509,25 +509,55 @@ async function getLostDeals(company: string) {
 
 // ── Region pipeline ─────────────────────────────────────────────────────────
 
-async function getRegionPipeline(company: string) {
-  const rows = await query<{ territory: string; quoted: number; negotiation: number; won: number }>(
-    `SELECT territory,
-            ROUND(SUM(CASE WHEN status = 'Open'    AND DATEDIFF(CURDATE(), transaction_date) <= 7  THEN grand_total ELSE 0 END) / 100000) AS quoted,
-            ROUND(SUM(CASE WHEN status = 'Open'    AND DATEDIFF(CURDATE(), transaction_date)  > 7  THEN grand_total ELSE 0 END) / 100000) AS negotiation,
-            ROUND(SUM(CASE WHEN status = 'Ordered' THEN grand_total ELSE 0 END) / 100000) AS won
-     FROM tabQuotation
-     WHERE docstatus = 1
-       AND territory IS NOT NULL AND territory != '' AND territory != 'All Territories'
-     GROUP BY territory
-     ORDER BY SUM(CASE WHEN status IN ('Open','Ordered') THEN grand_total ELSE 0 END) DESC
-     LIMIT 9`,
-  )
-  return rows.map(r => ({
-    region:      r.territory,
-    quoted:      Number(r.quoted),
-    negotiation: Number(r.negotiation),
-    won:         Number(r.won),
-  }))
+async function getRegionPipeline(_company: string) {
+  const fyStart = new Date().getMonth() >= 3
+    ? `${new Date().getFullYear()}-04-01`
+    : `${new Date().getFullYear() - 1}-04-01`
+
+  const [quotedRows, negotiationRows, wonRows] = await Promise.all([
+    query<{ territory: string; amount: number }>(
+      `SELECT territory, COALESCE(SUM(base_grand_total), 0) AS amount
+       FROM \`tabQuotation\`
+       WHERE docstatus = 1 AND status = 'Open'
+         AND territory IS NOT NULL AND territory != '' AND territory != 'All Territories'
+       GROUP BY territory`,
+    ),
+    query<{ territory: string; amount: number }>(
+      `SELECT territory, COALESCE(SUM(opportunity_amount), 0) AS amount
+       FROM \`tabOpportunity\`
+       WHERE sales_stage = 'Negotiation/Review'
+         AND status IN ('Open', 'Quotation', 'Replied')
+         AND territory IS NOT NULL AND territory != '' AND territory != 'All Territories'
+       GROUP BY territory`,
+    ),
+    query<{ territory: string; amount: number }>(
+      `SELECT territory, COALESCE(SUM(base_grand_total), 0) AS amount
+       FROM \`tabSales Order\`
+       WHERE docstatus = 1
+         AND transaction_date BETWEEN ? AND CURDATE()
+         AND territory IS NOT NULL AND territory != '' AND territory != 'All Territories'
+       GROUP BY territory`,
+      [fyStart],
+    ),
+  ])
+
+  // Merge by territory
+  const map: Record<string, { quoted: number; negotiation: number; won: number }> = {}
+  const ensure = (t: string) => { if (!map[t]) map[t] = { quoted: 0, negotiation: 0, won: 0 } }
+
+  quotedRows.forEach(r      => { ensure(r.territory); map[r.territory].quoted      += Number(r.amount) })
+  negotiationRows.forEach(r => { ensure(r.territory); map[r.territory].negotiation += Number(r.amount) })
+  wonRows.forEach(r         => { ensure(r.territory); map[r.territory].won         += Number(r.amount) })
+
+  return Object.entries(map)
+    .map(([region, v]) => ({
+      region,
+      quoted:      Math.round(v.quoted      / 100000),
+      negotiation: Math.round(v.negotiation / 100000),
+      won:         Math.round(v.won         / 100000),
+    }))
+    .sort((a, b) => (b.quoted + b.negotiation + b.won) - (a.quoted + a.negotiation + a.won))
+    .slice(0, 9)
 }
 
 // ── Top customers ───────────────────────────────────────────────────────────
