@@ -32,19 +32,11 @@ const RAG_BG:  Record<string, string> = { red: RED_BG,   amber: AMBER_BG, green:
 const RAG_TX:  Record<string, string> = { red: RED,      amber: AMBER,    green: GREEN,    hold: HOLD_TX }
 const RAG_HEX: Record<string, string> = { red: RED, amber: AMBER, green: GREEN, hold: '#6B7280' }
 
-
-// S1–S9 fixed stage definitions from template (colors + names match exactly)
-const PIPELINE_STAGES = [
-  { short: 'S1', label: 'Eng & design',  color: '#3a4080' },
-  { short: 'S2', label: 'Prod planning', color: NAVY },
-  { short: 'S3', label: 'Procurement',   color: GREEN },
-  { short: 'S4', label: 'Vendor dev',    color: '#6B4226' },
-  { short: 'S5', label: 'Stores',        color: '#4A235A' },
-  { short: 'S6', label: 'Manufacturing', color: NAVY_DEEP },
-  { short: 'S7', label: 'Quality',       color: '#7D6608' },
-  { short: 'S8', label: 'Dispatch',      color: '#185FA5' },
-  { short: 'S9', label: 'Installation',  color: '#6E2C00' },
-]
+const STAGE_COLORS: Record<string, string> = {
+  S1: '#3a4080', S2: NAVY,       S3: GREEN,
+  S4: '#6B4226', S5: '#4A235A',  S6: NAVY_DEEP,
+  S7: '#7D6608', S8: '#185FA5',  S9: '#6E2C00',
+}
 
 const QUICK_ACTIONS = [
   { icon: 'ti-arrow-right',    label: 'Update WO stage',      path: 'work-order',                           primary: true  },
@@ -450,15 +442,9 @@ export default function ManufacturingHeadHomepage() {
             <CardTitle icon="ti-layout-kanban" title="Operations pipeline · S1 to S9"
               right={<ViewAll href={erpUrl('order-pipeline')} label="Open pipeline ↗" />} />
             <div className="mfg-pipe">
-              {PIPELINE_STAGES.map((def) => {
-                // Merge live counts from DB if available, otherwise zeros
-                const live = pipelineStages.find(p => p.short === def.short)
-                const s: PipelineStage = {
-                  short: def.short, label: def.label, color: def.color,
-                  red: live?.red ?? 0, amber: live?.amber ?? 0, green: live?.green ?? 0, hold: live?.hold ?? 0,
-                }
-                return <PipelineTile key={def.short} s={s} erpBase={erpBase} />
-              })}
+              {pipelineStages.map((s) => (
+                <PipelineTile key={s.short} s={{ ...s, color: STAGE_COLORS[s.short] ?? s.color }} erpBase={erpBase} />
+              ))}
             </div>
           </Card>
 

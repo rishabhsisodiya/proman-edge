@@ -279,8 +279,9 @@ async function getPipelineStages(): Promise<PipelineStage[]> {
      LEFT JOIN \`tabPipeline History\` ph  ON ph.parent          = op.name
                                           AND ph.stage_id        = op.stage
                                           AND ph.stage_end_date  IS NULL
+     WHERE ops.stage_id != 'S0'
      GROUP BY ops.stage_id, ops.stage_name, ops.stage_color, ops.planned_days
-     ORDER BY ops.idx`,
+     ORDER BY ops.stage_id`,
     [GRACE_DAYS, GRACE_DAYS],
   )
 
