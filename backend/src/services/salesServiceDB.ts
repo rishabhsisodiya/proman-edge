@@ -56,7 +56,7 @@ async function getFunnel(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promis
   const [leads, opps, negs, quots, orders] = await Promise.all([
     query<{ cnt: number }>(
       `SELECT COUNT(*) AS cnt FROM tabLead
-       WHERE docstatus = 0
+       WHERE status = 'Open'
          AND creation BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)`,
       [from, to],
     ),
@@ -164,10 +164,10 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
   // Sparkline SQL differs by period: monthly=6mo, qtr=4 quarters, ytd=3 years
   // YTD: cap each year to the same day-of-year as today so all bars are comparable
   const enqSparkSql = period === 'ytd'
-    ? `SELECT DATE_FORMAT(creation,'%Y') AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) AND DATE_FORMAT(creation,'%m-%d') <= DATE_FORMAT(CURDATE(),'%m-%d') GROUP BY m ORDER BY m`
+    ? `SELECT DATE_FORMAT(creation,'%Y') AS m, COUNT(*) AS val FROM tabLead WHERE status='Open' AND creation >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR) AND DATE_FORMAT(creation,'%m-%d') <= DATE_FORMAT(CURDATE(),'%m-%d') GROUP BY m ORDER BY m`
     : period === 'qtr'
-    ? `SELECT CONCAT(YEAR(creation),'-Q',QUARTER(creation)) AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) GROUP BY m ORDER BY m`
-    : `SELECT DATE_FORMAT(creation,'%Y-%m') AS m, COUNT(*) AS val FROM tabLead WHERE docstatus=0 AND creation >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) GROUP BY m ORDER BY m`
+    ? `SELECT CONCAT(YEAR(creation),'-Q',QUARTER(creation)) AS m, COUNT(*) AS val FROM tabLead WHERE status='Open' AND creation >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) GROUP BY m ORDER BY m`
+    : `SELECT DATE_FORMAT(creation,'%Y-%m') AS m, COUNT(*) AS val FROM tabLead WHERE status='Open' AND creation >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) GROUP BY m ORDER BY m`
 
   // Spark shows order VALUE trend (₹ Cr) — YTD capped to same day-of-year
   const ordSparkSql = period === 'ytd'
@@ -190,7 +190,7 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
   const [enqRows, ordRows, revRows, openQuotRows, convRows, enqSpark, ordSpark, quotSpark, convSparkRaw, revSparkRaw, targetRows] = await Promise.all([
     query<{ cnt: number }>(
       `SELECT COUNT(*) AS cnt FROM tabLead
-       WHERE docstatus = 0
+       WHERE status = 'Open'
          AND creation BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)`,
       [from, to],
     ),
@@ -297,7 +297,7 @@ async function getKpis(company: string, period: 'mtd' | 'qtr' | 'ytd'): Promise<
   }
 
   const [prevLeadRows, prevOrdRows, prevConvRows] = await Promise.all([
-    query<{ cnt: number }>(`SELECT COUNT(*) AS cnt FROM tabLead WHERE docstatus=0 AND creation BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)`, [prevFrom, prevTo]),
+    query<{ cnt: number }>(`SELECT COUNT(*) AS cnt FROM tabLead WHERE status='Open' AND creation BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)`, [prevFrom, prevTo]),
     query<{ cnt: number; val: number }>(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS val FROM \`tabSales Order\` WHERE docstatus=1 AND transaction_date BETWEEN ? AND ?`, [prevFrom, prevTo]),
     query<{ total: number; converted: number }>(`SELECT COUNT(*) AS total, SUM(status = 'Ordered') AS converted FROM tabQuotation WHERE docstatus=1 AND transaction_date BETWEEN ? AND ?`, [prevFrom, prevTo]),
   ])
@@ -469,15 +469,14 @@ async function getLostDeals(company: string) {
   const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
   const rows = await query<{ name: string; customer: string; grand_total: number; reason: string }>(
-    `SELECT q.name, COALESCE(q.customer, q.party_name, q.title, '—') AS customer,
-            q.grand_total,
-            COALESCE(lr.order_lost_reason, 'Not specified') AS reason
-     FROM tabQuotation q
-     LEFT JOIN \`tabQuotation Lost Reason\` lr ON lr.parent = q.name
+    `SELECT q.name, COALESCE(q.customer_name, q.party_name, q.title, '—') AS customer,
+            q.base_grand_total AS grand_total,
+            COALESCE(q.order_lost_reason, 'Not specified') AS reason
+     FROM \`tabQuotation\` q
      WHERE q.docstatus = 1 AND q.status = 'Lost'
        AND q.modified >= ?
-     ORDER BY q.modified DESC
-     LIMIT 20`,
+     ORDER BY q.base_grand_total DESC
+     LIMIT 10`,
     [from],
   )
 
@@ -562,44 +561,65 @@ async function getRegionPipeline(_company: string) {
 
 // ── Top customers ───────────────────────────────────────────────────────────
 
-async function getTopCustomers(company: string) {
-  const { from, to } = periodBounds('mtd')
-  const rows = await query<{ customer_name: string; cnt: number; val: number }>(
-    `SELECT customer_name, COUNT(*) AS cnt, SUM(grand_total) AS val
-     FROM \`tabSales Order\`
+async function getTopCustomers(_company: string) {
+  const now = new Date()
+  const fyStart = now.getMonth() >= 3
+    ? `${now.getFullYear()}-04-01`
+    : `${now.getFullYear() - 1}-04-01`
+  const mtdStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+
+  const rows = await query<{
+    customer: string; customer_name: string
+    value_mtd: number; orders_mtd: number; last_order: string | null; value_ytd: number
+  }>(
+    `SELECT customer, customer_name,
+            SUM(IF(posting_date >= ?, base_grand_total, 0)) AS value_mtd,
+            SUM(IF(posting_date >= ?, 1, 0))                AS orders_mtd,
+            MAX(IF(posting_date >= ?, posting_date, NULL))  AS last_order,
+            SUM(base_grand_total)                           AS value_ytd
+     FROM \`tabSales Invoice\`
      WHERE docstatus = 1
-       AND transaction_date BETWEEN ? AND ?
-     GROUP BY customer_name
-     ORDER BY val DESC
+       AND posting_date >= ?
+     GROUP BY customer, customer_name
+     HAVING value_mtd > 0
+     ORDER BY value_mtd DESC
      LIMIT 10`,
-    [from, to],
+    [mtdStart, mtdStart, mtdStart, fyStart],
   )
 
-  const maxVal = Math.max(...rows.map(r => r.val), 1)
+  const maxVal = Math.max(...rows.map(r => Number(r.value_mtd)), 1)
   return rows.map((r, i) => ({
     rank:      i + 1,
-    name:      r.customer_name,
-    value:     rupees(r.val),
-    orders:    r.cnt,
-    barPct:    Math.round((r.val / maxVal) * 100),
+    name:      r.customer_name || r.customer,
+    value:     rupees(Number(r.value_mtd)),
+    orders:    Number(r.orders_mtd),
+    barPct:    Math.round((Number(r.value_mtd) / maxVal) * 100),
     trend:     'eq' as const,
     trendVs:   '',
-    ytdValue:  rupees(r.val),
-    lastOrder: '—',
+    ytdValue:  rupees(Number(r.value_ytd)),
+    lastOrder: r.last_order ? friendlyDate(r.last_order) : '—',
   }))
 }
 
 // ── Alerts ──────────────────────────────────────────────────────────────────
 
-async function getAttention(company: string) {
+async function getAttention(_company: string) {
   const [expToday, overdueFollowup] = await Promise.all([
     query<{ cnt: number }>(
-      `SELECT COUNT(*) AS cnt FROM tabQuotation
+      `SELECT COUNT(*) AS cnt FROM \`tabQuotation\`
        WHERE docstatus = 1 AND status = 'Open' AND valid_till = CURDATE()`,
     ),
+    // Communication-based overdue: >7 days since last follow-up (or since quotation date if no comms)
     query<{ cnt: number }>(
-      `SELECT COUNT(*) AS cnt FROM tabQuotation
-       WHERE docstatus = 1 AND status = 'Open' AND valid_till < CURDATE()`,
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT q.name,
+                DATEDIFF(CURDATE(), COALESCE(MAX(c.communication_date), q.transaction_date)) AS d
+         FROM \`tabQuotation\` q
+         LEFT JOIN \`tabCommunication\` c
+           ON c.reference_doctype = 'Quotation' AND c.reference_name = q.name
+         WHERE q.docstatus = 1 AND q.status = 'Open'
+         GROUP BY q.name, q.transaction_date
+       ) t WHERE t.d > 7`,
     ),
   ])
 
@@ -608,7 +628,7 @@ async function getAttention(company: string) {
     items.push({ type: 'expiring' as const, count: String(expToday[0].cnt), title: 'Quotations expiring today', sub: 'Extend or convert before EOD', severity: 'red' as const })
   }
   if (overdueFollowup[0].cnt > 0) {
-    items.push({ type: 'followup' as const, count: String(overdueFollowup[0].cnt), title: 'Overdue follow-ups', sub: 'Past validity date', severity: 'amber' as const })
+    items.push({ type: 'followup' as const, count: String(overdueFollowup[0].cnt), title: 'Overdue follow-ups', sub: 'No contact in 7+ days', severity: 'amber' as const })
   }
   return items
 }
