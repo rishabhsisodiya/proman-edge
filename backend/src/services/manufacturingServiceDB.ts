@@ -49,21 +49,19 @@ async function getKpis() {
            WHERE jc.work_order = wo.name AND jc.status = 'On Hold'
          )
          AND (
-           (wo.expected_delivery_date IS NOT NULL
-            AND wo.expected_delivery_date BETWEEN
-              DATE_SUB(CURDATE(), INTERVAL ? DAY) AND DATE_ADD(CURDATE(), INTERVAL ? DAY))
+           DATEDIFF(CURDATE(), wo.expected_delivery_date) BETWEEN 1 AND ?
+           OR wo.expected_delivery_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
            OR EXISTS (
              SELECT 1 FROM \`tabJob Card\` jc
              WHERE jc.work_order = wo.name
-               AND jc.docstatus = 1
-               AND jc.for_quantity > 0
-               AND jc.expected_start_date IS NOT NULL
-               AND jc.expected_end_date IS NOT NULL
+               AND jc.status IN ('Work In Progress', 'Material Transferred')
                AND jc.expected_end_date > jc.expected_start_date
-               AND NOW() BETWEEN jc.expected_start_date AND jc.expected_end_date
-               AND (jc.total_completed_qty / jc.for_quantity)
-                   < (TIMESTAMPDIFF(SECOND, jc.expected_start_date, NOW())
-                      / TIMESTAMPDIFF(SECOND, jc.expected_start_date, jc.expected_end_date))
+               AND jc.total_completed_qty < jc.for_quantity *
+                   LEAST(
+                     GREATEST(TIMESTAMPDIFF(SECOND, jc.expected_start_date, NOW()), 0)
+                     / TIMESTAMPDIFF(SECOND, jc.expected_start_date, jc.expected_end_date),
+                     1
+                   )
            )
          )`,
       [GRACE_DAYS, GRACE_DAYS, ATRISK_DAYS],
@@ -277,6 +275,7 @@ async function getPipelineStages(): Promise<PipelineStage[]> {
      FROM \`tabOrder Pipeline Stage\` ops
      LEFT JOIN \`tabOrder Pipeline\`   op  ON op.stage           = ops.stage_id
      LEFT JOIN \`tabPipeline History\` ph  ON ph.parent          = op.name
+                                          AND ph.parentfield     = 'table_hkbf'
                                           AND ph.stage_id        = op.stage
                                           AND ph.stage_end_date  IS NULL
      WHERE ops.stage_id != 'S0'
