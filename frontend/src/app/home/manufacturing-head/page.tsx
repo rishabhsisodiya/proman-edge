@@ -724,7 +724,7 @@ export default function ManufacturingHeadHomepage() {
 
             {/* Footer */}
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${BORDER}`, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
-              <a href={`${erpBase}/app/order-pipeline?stage=${pipelineModal.stage}`} target="_blank" rel="noreferrer"
+              <a href={`${erpBase}/app/order-pipeline?stage_name=${encodeURIComponent(JSON.stringify(['like', `%${pipelineModal.label}%`]))}`} target="_blank" rel="noreferrer"
                 style={{ fontSize: 11, fontWeight: 600, padding: '7px 16px', borderRadius: 8,
                   background: NAVY, color: '#fff', textDecoration: 'none' }}>
                 Open in pipeline ↗
