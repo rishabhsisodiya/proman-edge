@@ -685,20 +685,17 @@ export async function getPipelineOrdersByStage(stageId: string): Promise<Pipelin
     : ''
 
   const woRows = await query<{
-    wo_name: string; sales_order: string; customer: string; production_item: string
-    expected_delivery_date: string | null; wo_status: string
+    wo_name: string; sales_order: string; customer: string
   }>(
     `SELECT
        wo.name                                    AS wo_name,
-       COALESCE(NULLIF(wo.sales_order,''), wo.name) AS sales_order,
-       COALESCE(so.customer_name, '—')            AS customer,
-       COALESCE(wo.production_item, '—')          AS production_item,
-       wo.expected_delivery_date,
-       wo.status                                  AS wo_status
+       wo.sales_order,
+       COALESCE(so.customer_name, '—')            AS customer
      FROM \`tabWork Order\` wo
      LEFT JOIN \`tabSales Order\` so ON so.name = wo.sales_order
      WHERE wo.docstatus < 2
        AND wo.status IN (${placeholders})
+       AND wo.sales_order IS NOT NULL AND wo.sales_order <> ''
        ${s8Filter}
      ORDER BY wo.expected_delivery_date ASC
      LIMIT 10`,
@@ -706,7 +703,7 @@ export async function getPipelineOrdersByStage(stageId: string): Promise<Pipelin
   )
 
   // For each WO, find all sibling WOs on the same SO to build multi-stage activeStages
-  const soNames = woRows.map(r => r.sales_order).filter(s => s && !s.startsWith('WO-'))
+  const soNames = woRows.map(r => r.sales_order).filter(s => s && s !== '')
   let siblingMap: Map<string, string[]> = new Map()
 
   if (soNames.length > 0) {

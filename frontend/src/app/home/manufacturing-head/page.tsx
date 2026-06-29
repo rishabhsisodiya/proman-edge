@@ -672,9 +672,6 @@ export default function ManufacturingHeadHomepage() {
                       <tr>
                         <th>Sales Order</th>
                         <th>Customer</th>
-                        <th>Product</th>
-                        <th>Due</th>
-                        <th>WO Status</th>
                         <th>Stage progress</th>
                       </tr>
                     </thead>
@@ -690,9 +687,6 @@ export default function ManufacturingHeadHomepage() {
                           <tr key={i}>
                             {td(o.salesOrder, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
                             {td(o.customer,   { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
-                            {td(o.product,    { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
-                            {td(o.dueDate)}
-                            {td(<WOStatusBadge status={o.woStatus} />)}
                             <td style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, verticalAlign: 'middle' }}>
                               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                 {STAGES.map(s => {
