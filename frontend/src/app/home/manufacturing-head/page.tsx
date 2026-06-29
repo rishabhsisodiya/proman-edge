@@ -101,6 +101,18 @@ function ViewAll({ href, label = 'View all ↗' }: { href: string; label?: strin
     </a>
   )
 }
+function WOStatusBadge({ status }: { status: string }) {
+  const cfg: Record<string, { bg: string; color: string }> = {
+    'In Process':  { bg: GREEN_BG,   color: GREEN },
+    'Not Started': { bg: AMBER_BG,   color: AMBER },
+    'Stopped':     { bg: RED_BG,     color: RED   },
+  }
+  const s = cfg[status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+      background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{status}</span>
+  )
+}
 function ChBadge({ label, rag }: { label: string; rag: 'red' | 'amber' | 'green' }) {
   return (
     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 99,
@@ -456,13 +468,13 @@ export default function ManufacturingHeadHomepage() {
                 right={<ViewAll href={erpUrl('work-order')} />} />
               <div className="tbl-wrap">
                 <table className="tbl">
-                  <thead><tr><th>WO No.</th><th>Customer</th><th>Stage</th><th>Days over</th><th>Status</th></tr></thead>
+                  <thead><tr><th>WO No.</th><th>Customer</th><th>WO Status</th><th>Days over</th><th>RAG</th></tr></thead>
                   <tbody>
                     {delayedWOs.map((r, i) => (
                       <tr key={i} className={`lb-${r.rag === 'green' ? 'g' : r.rag}`} style={{ cursor: 'pointer' }} onClick={() => setDrawerWO(r.wo)}>
                         {td(r.wo, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
                         {td(r.customer, { maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK2 })}
-                        {td(r.stage, { color: INK2 })}
+                        {td(<WOStatusBadge status={r.status} />)}
                         {td(r.daysOver > 0 ? `${r.daysOver}d` : '—')}
                         {td(<Tag rag={r.rag} label={r.label} />)}
                       </tr>
@@ -541,7 +553,7 @@ export default function ManufacturingHeadHomepage() {
                 right={<ViewAll href={erpUrl('work-order')} label="Risk analysis ↗" />} />
               <div className="tbl-wrap">
                 <table className="tbl">
-                  <thead><tr><th>WO No.</th><th>Customer</th><th>Product</th><th>Due</th><th>Stage</th><th>Completion</th></tr></thead>
+                  <thead><tr><th>WO No.</th><th>Customer</th><th>Product</th><th>Due</th><th>WO Status</th><th>Completion</th></tr></thead>
                   <tbody>
                     {completingThisWeek.map((r, i) => (
                       <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }} onClick={() => setDrawerWO(r.wo)}>
@@ -549,7 +561,7 @@ export default function ManufacturingHeadHomepage() {
                         {td(r.customer, { color: INK2, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                         {td(r.product, { color: INK2 })}
                         {td(r.due, { color: r.rag === 'red' ? RED : INK, fontWeight: r.rag === 'red' ? 700 : 400 })}
-                        {td(r.stage, { color: INK2 })}
+                        {td(<WOStatusBadge status={r.status} />)}
                         {td(<Tag rag={r.rag} label={r.rag === 'green' ? `${r.completion}% · on track` : r.rag === 'red' ? `${r.completion}% · overdue` : `${r.completion}% · watch`} />)}
                       </tr>
                     ))}

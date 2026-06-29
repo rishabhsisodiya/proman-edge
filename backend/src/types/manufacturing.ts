@@ -10,7 +10,7 @@ export interface PipelineStage {
 }
 
 export interface DelayedWO {
-  wo: string; customer: string; stage: string
+  wo: string; customer: string; status: string
   daysOver: number; rag: 'red' | 'amber' | 'green'; label: string
 }
 
@@ -30,7 +30,7 @@ export interface DowntimeMachine {
 
 export interface CompletingWO {
   wo: string; customer: string; product: string; due: string
-  stage: string; completion: number; rag: 'red' | 'amber' | 'green'
+  status: string; completion: number; rag: 'red' | 'amber' | 'green'
 }
 
 export interface QualityRejection {

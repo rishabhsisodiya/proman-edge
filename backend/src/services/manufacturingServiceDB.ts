@@ -179,13 +179,10 @@ async function getDelayedWOs(): Promise<DelayedWO[]> {
     } else {
       rag = 'amber'; label = 'At risk'
     }
-    const stage = r.pipeline_stage && r.pipeline_stage_name
-      ? `${r.pipeline_stage}·${r.pipeline_stage_name.split(' ')[0]}`
-      : r.status === 'Stopped' ? 'On hold' : '—'
     return {
       wo:       r.name,
       customer: r.customer_name,
-      stage,
+      status:   r.status,
       daysOver: rag === 'red' ? daysOver : 0,
       rag,
       label,
@@ -346,20 +343,19 @@ async function getDowntime(): Promise<{ totalHrs: number; machines: DowntimeMach
 async function getCompletingThisWeek(): Promise<CompletingWO[]> {
   const rows = await query<{
     name: string; customer_name: string; production_item: string
-    expected_delivery_date: string; stage_name: string
+    expected_delivery_date: string; status: string
     qty: number; produced_qty: number
   }>(
     `SELECT
        wo.name,
+       wo.status,
        COALESCE(so.customer_name, '—')    AS customer_name,
        wo.production_item,
        wo.expected_delivery_date,
-       COALESCE(op.stage_name, '—')       AS stage_name,
        wo.qty,
        wo.produced_qty
      FROM \`tabWork Order\`    wo
-     LEFT JOIN \`tabSales Order\`    so ON so.name          = wo.sales_order
-     LEFT JOIN \`tabOrder Pipeline\` op ON op.sales_order_id = wo.sales_order
+     LEFT JOIN \`tabSales Order\` so ON so.name = wo.sales_order
      WHERE wo.docstatus = 1
        AND wo.status IN ('In Process','Not Started')
        AND wo.expected_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
@@ -376,7 +372,7 @@ async function getCompletingThisWeek(): Promise<CompletingWO[]> {
       customer:   r.customer_name,
       product:    r.production_item,
       due:        new Date(r.expected_delivery_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-      stage:      r.stage_name,
+      status:     r.status,
       completion,
       rag,
     }
