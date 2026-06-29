@@ -677,10 +677,8 @@ export default function ManufacturingHeadHomepage() {
                       {pipelineOrders.map((o, i) => {
                         const STAGES = ['S1','S2','S3','S4','S5','S6','S7','S8','S9']
                         // If DB has no completed stage history, infer: all stages before the first active stage are completed
-                        const firstActiveIdx = STAGES.findIndex(s => o.activeStages.includes(s))
-                        const inferredCompleted = o.completedStages.length === 0 && firstActiveIdx > 0
-                          ? STAGES.slice(0, firstActiveIdx)
-                          : o.completedStages
+                        const maxActiveIdx = Math.max(...o.activeStages.map(s => STAGES.indexOf(s)))
+                        const inferredCompleted = STAGES.slice(0, maxActiveIdx).filter(s => !o.activeStages.includes(s))
                         return (
                           <tr key={i}>
                             {td(o.salesOrder, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
