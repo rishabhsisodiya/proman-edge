@@ -377,6 +377,22 @@ export default function SalesHeadHomepage() {
         border-color: ${ORANGE}; color: #fff; box-shadow: 0 3px 10px rgba(255,118,4,.30); }
       .sh-action-btn.primary i { color: #fff; }
       .sh-action-btn.primary:hover { background: linear-gradient(135deg,#FF7E18 0%,#E96C00 100%); border-color: #E96C00; }
+
+      /* ── Responsive layout ── */
+      .sh-kpi-grid    { display: grid; grid-template-columns: repeat(5,1fr); gap: 9px; }
+      .sh-row-funnel  { display: grid; grid-template-columns: 1.15fr .85fr; gap: 11px; }
+      .sh-row-main    { display: grid; grid-template-columns: 1.6fr 1fr; gap: 11px; align-items: start; }
+      .sh-quick-btns  { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+      @media (max-width: 1024px) {
+        .sh-kpi-grid   { grid-template-columns: repeat(3,1fr); }
+        .sh-row-funnel { grid-template-columns: 1fr; }
+        .sh-row-main   { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 600px) {
+        .sh-kpi-grid   { grid-template-columns: repeat(2,1fr); }
+        .sh-quick-btns { grid-template-columns: 1fr; }
+      }
     `}</style>
     <div style={{ minHeight: '100vh', fontFamily: "Arial,'Helvetica Neue',Helvetica,sans-serif", background: BG, color: TEXT, WebkitFontSmoothing: 'antialiased', padding: 12 }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 11 }}>
@@ -491,7 +507,7 @@ export default function SalesHeadHomepage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.6)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Pipeline snapshot</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 9 }}>
+          <div className="sh-kpi-grid">
             {CARD_ORDER.map(idx => {
               const card = CARDS[idx]
               const per  = card.toggle ? cardPeriods[idx] : 'month'
@@ -558,7 +574,7 @@ export default function SalesHeadHomepage() {
         </div>
 
         {/* ── FUNNEL + GAUGE ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.15fr .85fr', gap: 11 }}>
+        <div className="sh-row-funnel">
           {/* Funnel */}
           <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
@@ -640,7 +656,7 @@ export default function SalesHeadHomepage() {
         </div>
 
         {/* ── MAIN GRID: Action queue + Customers (left) | Region + Quick actions (right) ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 11, alignItems: 'start' }}>
+        <div className="sh-row-main">
           {/* LEFT colstack */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 0 }}>
             {/* Action queue */}
@@ -853,7 +869,7 @@ export default function SalesHeadHomepage() {
                 <i className="ti ti-bolt" style={{ fontSize: 15, color: NAVY }} />
                 Quick actions
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <div className="sh-quick-btns">
                 {QUICK_ACTIONS.map(a => (
                   <a key={a.label} href={erpUrl(a.path)} target="_blank" rel="noreferrer"
                     className={`sh-action-btn${a.primary ? ' primary' : ''}`}
