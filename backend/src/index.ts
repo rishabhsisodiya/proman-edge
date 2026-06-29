@@ -4,6 +4,7 @@ import cors from 'cors'
 import salesRoutes from './routes/sales'
 import authRoutes from './routes/auth'
 import manufacturingRoutes from './routes/manufacturing'
+import { registerKpiSnapshotCron } from './cron/kpiSnapshot'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -31,5 +32,5 @@ app.use('/api/v1/manufacturing', manufacturingRoutes)
 
 app.listen(PORT, () => {
   console.log(`Proman Edge backend running on http://localhost:${PORT}`)
-
+  registerKpiSnapshotCron()
 })

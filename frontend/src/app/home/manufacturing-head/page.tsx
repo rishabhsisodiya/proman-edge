@@ -407,13 +407,13 @@ export default function ManufacturingHeadHomepage() {
             <div className="mfg-kpi-strip">
               {KPI_DEFS.map((k, i) => {
                 const trendColor = k.kpi.trend
-                  ? k.kpi.trend.dir === 'up'  ? '#86E5AC'
-                  : k.kpi.trend.dir === 'down' ? '#FFB0AC'
-                  :                              '#FCD9A0'
-                  : '#FCD9A0'
+                  ? k.kpi.trend.dir === 'up'      ? '#86E5AC'
+                  : k.kpi.trend.dir === 'down'    ? '#FFB0AC'
+                  :                                 '#FCD9A0'
+                  : '#AAB0DC'
                 const trendText = k.kpi.trend
                   ? `${k.kpi.trend.delta} ${k.kpi.trend.label}`
-                  : `0 ${k.trendLabel}`
+                  : `— ${k.trendLabel}`
                 return (
                   <div key={i} className="kpi-item" style={{ borderTop: `3px solid ${KPI_TOP[k.cls]}` }}>
                     <div style={{ fontSize: 12.5, color: '#C7CBEC', marginBottom: 5 }}>{k.lbl}</div>

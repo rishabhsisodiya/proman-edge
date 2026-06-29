@@ -3,6 +3,7 @@ import type {
   ManufacturingHomepageData, DelayedWO, CompletingWO,
   PipelineStage, SubStage, MaterialShortage, DowntimeMachine,
 } from '../types/manufacturing'
+import { getYesterdaySnapshot, computeTrend } from './kpiSnapshotService'
 
 const GRACE_DAYS  = 3   // days past due before WO turns red
 const ATRISK_DAYS = 5   // days ahead of due date that trigger amber
@@ -19,10 +20,10 @@ async function getKpis() {
        WHERE docstatus = 1 AND status IN ('In Process','Not Started')`,
     ),
 
-    // W-MH-02 Completed: no date filter — all-time per spec
+    // W-MH-02 Completed today: WOs completed on today's date
     query<{ cnt: number }>(
       `SELECT COUNT(*) AS cnt FROM \`tabWork Order\`
-       WHERE docstatus = 1 AND status = 'Completed'`,
+       WHERE docstatus = 1 AND status = 'Completed' AND DATE(modified) = CURDATE()`,
     ),
 
     // W-MH-03 Delayed (Red): past expected_delivery_date by more than grace days, not on hold
@@ -81,22 +82,42 @@ async function getKpis() {
     ),
   ])
 
-  const activeVal   = active[0].cnt
-  const delayedVal  = delayed[0].cnt
-  const atRiskVal   = atRisk[0].cnt
-  const onHoldVal   = onHold[0].cnt
-  const greenVal    = Math.max(0, activeVal - delayedVal - atRiskVal - onHoldVal)
+  const activeVal      = active[0].cnt
+  const completedVal   = Number(completed[0].cnt)
+  const delayedVal     = delayed[0].cnt
+  const atRiskVal      = atRisk[0].cnt
+  const onHoldVal      = onHold[0].cnt
+  const greenVal       = Math.max(0, activeVal - delayedVal - atRiskVal - onHoldVal)
 
-  // Trend data requires a daily snapshot table — not yet available.
-  // All trends are null (rendered as "— vs yesterday" in neutral colour).
-  const noTrend = null
+  const yesterday = getYesterdaySnapshot()
 
   return {
-    activeWOs:      { value: activeVal, sub: 'Work orders in progress', trend: noTrend, red: delayedVal, amber: atRiskVal, green: greenVal, hold: onHoldVal },
-    completedToday: { value: completed[0].cnt, sub: 'Completed work orders today', trend: noTrend },
-    delayedRed:     { value: delayedVal,  sub: 'Needs immediate action',             trend: noTrend },
-    atRiskAmber:    { value: atRiskVal,   sub: `Due within ${ATRISK_DAYS} days`,     trend: noTrend },
-    onHold:         { value: onHoldVal,   sub: 'Active holds',                        trend: noTrend },
+    activeWOs: {
+      value: activeVal,
+      sub: 'Work orders in progress',
+      trend: yesterday ? computeTrend(activeVal, yesterday.activeWOs, 'activeWOs') : null,
+      red: delayedVal, amber: atRiskVal, green: greenVal, hold: onHoldVal,
+    },
+    completedToday: {
+      value: completedVal,
+      sub: 'Completed on today\'s date',
+      trend: yesterday ? computeTrend(completedVal, yesterday.completedToday, 'completedToday') : null,
+    },
+    delayedRed: {
+      value: delayedVal,
+      sub: 'Needs immediate action',
+      trend: yesterday ? computeTrend(delayedVal, yesterday.delayed, 'delayed') : null,
+    },
+    atRiskAmber: {
+      value: atRiskVal,
+      sub: `Due within ${ATRISK_DAYS} days`,
+      trend: yesterday ? computeTrend(atRiskVal, yesterday.atRisk, 'atRisk') : null,
+    },
+    onHold: {
+      value: onHoldVal,
+      sub: 'Active holds',
+      trend: yesterday ? computeTrend(onHoldVal, yesterday.onHold, 'onHold') : null,
+    },
   }
 }
 
