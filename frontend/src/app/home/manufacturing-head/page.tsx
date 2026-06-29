@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useManufacturingHomepage } from '@/hooks/useManufacturingHomepage'
 import { useWorkOrderDetail } from '@/hooks/useWorkOrderDetail'
-import { useMaterialRequestDetail } from '@/hooks/useMaterialRequestDetail'
 import { usePipelineOrders } from '@/hooks/usePipelineOrders'
 import type { PipelineStage, SubStage } from '@/types/manufacturing'
 import { colors } from '@/lib/brand'
@@ -190,11 +189,9 @@ export default function ManufacturingHeadHomepage() {
   const { user, isLoading: userLoading } = useCurrentUser()
   const { data, isLoading, isError }     = useManufacturingHomepage()
   const [drawerWO, setDrawerWO]          = useState<string | null>(null)
-  const [drawerMR, setDrawerMR]          = useState<string | null>(null)
   const [pipelineModal, setPipelineModal] = useState<{ stage: string; label: string; total: number } | null>(null)
   const { orders: pipelineOrders, isLoading: pipelineLoading } = usePipelineOrders(pipelineModal?.stage ?? null)
   const { detail: woDetail, isLoading: woLoading } = useWorkOrderDetail(drawerWO)
-  const { detail: mrDetail, isLoading: mrLoading } = useMaterialRequestDetail(drawerMR)
   const switcherOptions = [{ label: 'Sales Head', slug: 'sales-head' }]
 
   useEffect(() => {
@@ -514,7 +511,8 @@ export default function ManufacturingHeadHomepage() {
                       <thead><tr><th>MR</th><th>Item</th><th>Short</th><th>ETA</th></tr></thead>
                       <tbody>
                         {materialShortages.slice(0, 5).map((r, i) => (
-                          <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }} onClick={() => r.wo.startsWith('MREQ') ? setDrawerMR(r.wo) : setDrawerWO(r.wo)}>
+                          <tr key={i} className={`lb-${r.rag}`} style={{ cursor: 'pointer' }}
+                            onClick={() => window.open(erpUrl(`${r.wo.startsWith('MREQ') ? 'material-request' : 'work-order'}/${encodeURIComponent(r.wo)}`), '_blank')}>
                             {td(r.wo, { color: NAVY, fontWeight: 600 })}
                             {td(r.item, { color: INK2, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                             {td(r.short, { color: RAG_TX[r.rag], fontWeight: 700 })}
@@ -729,72 +727,6 @@ export default function ManufacturingHeadHomepage() {
       )}
 
       {/* ── MR Detail Drawer ── */}
-      {drawerMR && (
-        <>
-          <div onClick={() => setDrawerMR(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 200 }} />
-          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 360, background: '#fff', zIndex: 201, display: 'flex', flexDirection: 'column', boxShadow: '-4px 0 24px rgba(0,0,0,.15)' }}>
-            <div style={{ background: NAVY, padding: '18px 16px 14px', flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{drawerMR}</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>
-                    {mrLoading ? 'Loading…' : mrDetail?.purpose ?? 'Material Request'}
-                  </div>
-                </div>
-                <button onClick={() => setDrawerMR(null)}
-                  style={{ background: 'none', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
-              </div>
-              {mrDetail && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
-                  <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: mrDetail.status === 'Pending' ? '#92600A' : mrDetail.status === 'Ordered' ? '#166534' : 'rgba(255,255,255,.2)', color: '#fff' }}>
-                    {mrDetail.status}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-              {mrLoading && <div style={{ fontSize: 12, color: INK3, textAlign: 'center', marginTop: 40 }}>Loading details…</div>}
-              {!mrLoading && mrDetail && (
-                <>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: INK3, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Request details</div>
-                  {([
-                    ['Request date', mrDetail.requestDate],
-                    ['Required by',  mrDetail.requiredBy],
-                    ['Requested by', mrDetail.requestedBy],
-                  ] as [string, string][]).map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '7px 0', borderBottom: `1px solid ${BORDER}` }}>
-                      <span style={{ color: INK2 }}>{k}</span>
-                      <span style={{ fontWeight: 500 }}>{v}</span>
-                    </div>
-                  ))}
-
-                  <div style={{ fontSize: 10, fontWeight: 600, color: INK3, textTransform: 'uppercase', letterSpacing: '.4px', margin: '14px 0 8px' }}>Items</div>
-                  {mrDetail.items.map((item, i) => (
-                    <div key={i} style={{ padding: '8px 0', borderBottom: `1px solid ${BORDER}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>{item.itemName}</div>
-                      <div style={{ display: 'flex', gap: 12, fontSize: 10.5, color: INK2 }}>
-                        <span>Ordered: <strong style={{ color: INK }}>{item.qty} {item.uom}</strong></span>
-                        <span>Received: <strong style={{ color: GREEN }}>{item.receivedQty}</strong></span>
-                        <span>Short: <strong style={{ color: RED }}>{item.short}</strong></span>
-                      </div>
-                      <div style={{ fontSize: 10, color: INK3, marginTop: 3 }}>ETA: {item.eta}</div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-
-            <div style={{ padding: '12px 16px', borderTop: `1px solid ${BORDER}`, flexShrink: 0 }}>
-              <a href={erpUrl(`material-request/${encodeURIComponent(drawerMR)}`)} target="_blank" rel="noreferrer"
-                style={{ display: 'block', fontSize: 11, fontWeight: 600, padding: '8px 0', borderRadius: 8, background: NAVY, color: '#fff', textAlign: 'center', textDecoration: 'none' }}>
-                Open in ERPNext ↗
-              </a>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* ── WO Detail Drawer ── */}
       {drawerWO && (
