@@ -6,6 +6,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useManufacturingHomepage } from '@/hooks/useManufacturingHomepage'
 import { useWorkOrderDetail } from '@/hooks/useWorkOrderDetail'
 import { useMaterialRequestDetail } from '@/hooks/useMaterialRequestDetail'
+import { usePipelineOrders } from '@/hooks/usePipelineOrders'
 import type { PipelineStage, SubStage } from '@/types/manufacturing'
 import { colors } from '@/lib/brand'
 
@@ -159,11 +160,11 @@ function SubStageChart({ stages }: { stages: SubStage[] }) {
 }
 
 // ── Pipeline tile ─────────────────────────────────────────────────────────────
-function PipelineTile({ s, erpBase }: { s: PipelineStage; erpBase: string }) {
+function PipelineTile({ s, onSelect }: { s: PipelineStage; onSelect: () => void }) {
   const total = s.red + s.amber + s.green + s.hold
   return (
     <div className="ptile" style={{ background: s.color || NAVY, cursor: 'pointer' }}
-      onClick={() => window.open(`${erpBase}/app/order-pipeline?stage=${s.short}`, '_blank')}>
+      onClick={onSelect}>
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(157deg,rgba(255,255,255,.14),rgba(255,255,255,0) 46%)', pointerEvents: 'none' }} />
       <div style={{ fontSize: 11, fontWeight: 700, opacity: .65, letterSpacing: '.8px' }}>{s.short}</div>
       <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, margin: '3px 0 8px', minHeight: 28 }}>{s.label}</div>
@@ -190,6 +191,8 @@ export default function ManufacturingHeadHomepage() {
   const { data, isLoading, isError }     = useManufacturingHomepage()
   const [drawerWO, setDrawerWO]          = useState<string | null>(null)
   const [drawerMR, setDrawerMR]          = useState<string | null>(null)
+  const [pipelineModal, setPipelineModal] = useState<{ stage: string; label: string; total: number } | null>(null)
+  const { orders: pipelineOrders, isLoading: pipelineLoading } = usePipelineOrders(pipelineModal?.stage ?? null)
   const { detail: woDetail, isLoading: woLoading } = useWorkOrderDetail(drawerWO)
   const { detail: mrDetail, isLoading: mrLoading } = useMaterialRequestDetail(drawerMR)
   const switcherOptions = [{ label: 'Sales Head', slug: 'sales-head' }]
@@ -213,6 +216,11 @@ export default function ManufacturingHeadHomepage() {
   const _now       = new Date()
   const _toDate    = _now.toISOString().slice(0, 10)
   const _fromDate  = new Date(_now.getFullYear(), _now.getMonth() - 1, _now.getDate()).toISOString().slice(0, 10)
+  const _weekDay   = _now.getDay() === 0 ? 6 : _now.getDay() - 1  // Mon=0 … Sun=6
+  const _weekMon   = new Date(_now); _weekMon.setDate(_now.getDate() - _weekDay)
+  const _weekSun   = new Date(_weekMon); _weekSun.setDate(_weekMon.getDate() + 6)
+  const _weekMonStr = _weekMon.toISOString().slice(0, 10)
+  const _weekSunStr = _weekSun.toISOString().slice(0, 10)
   const _company   = encodeURIComponent('Proman Infrastructure Services Private Limited')
 
   const QUICK_ACTION_URLS: Record<string, string> = {
@@ -455,7 +463,8 @@ export default function ManufacturingHeadHomepage() {
               right={<ViewAll href={erpUrl('order-pipeline')} label="Open pipeline ↗" />} />
             <div className="mfg-pipe">
               {pipelineStages.map((s) => (
-                <PipelineTile key={s.short} s={{ ...s, color: STAGE_COLORS[s.short] ?? s.color }} erpBase={erpBase} />
+                <PipelineTile key={s.short} s={{ ...s, color: STAGE_COLORS[s.short] ?? s.color }}
+                  onSelect={() => setPipelineModal({ stage: s.short, label: s.label, total: s.red + s.amber + s.green + s.hold })} />
               ))}
             </div>
           </Card>
@@ -465,7 +474,7 @@ export default function ManufacturingHeadHomepage() {
             <Card hero className="mfg-card hero">
               <CardTitle icon="ti-alert-circle"
                 title={<>Delayed work orders <span style={{ fontSize: 11, color: INK3, fontWeight: 400 }}>red first</span></>}
-                right={<ViewAll href={erpUrl('work-order')} />} />
+                right={<ViewAll href={erpUrl('work-order?status=%5B%22not+in%22%2C%5B%22Closed%22%2C%22Cancelled%22%2C%22Draft%22%5D%5D')} />} />
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead><tr><th>WO No.</th><th>Customer</th><th>WO Status</th><th>Days over</th><th>RAG</th></tr></thead>
@@ -550,7 +559,7 @@ export default function ManufacturingHeadHomepage() {
           <div className="mfg-row2">
             <Card className="mfg-card">
               <CardTitle icon="ti-calendar-stats" title="WOs completing this week"
-                right={<ViewAll href={erpUrl('work-order')} label="Risk analysis ↗" />} />
+                right={<ViewAll href={erpUrl(`work-order?status=%5B%22not+in%22%2C%5B%22Closed%22%2C%22Cancelled%22%2C%22Draft%22%5D%5D&expected_delivery_date=%5B%22between%22%2C%5B%22${_weekMonStr}%22%2C%22${_weekSunStr}%22%5D%5D`)} />} />
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead><tr><th>WO No.</th><th>Customer</th><th>Product</th><th>Due</th><th>WO Status</th><th>Completion</th></tr></thead>
@@ -624,6 +633,106 @@ export default function ManufacturingHeadHomepage() {
 
         </div>
       </div>
+
+      {/* ── Pipeline Stage Modal ── */}
+      {pipelineModal && (
+        <>
+          <div onClick={() => setPipelineModal(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 200 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            width: 'min(96vw, 900px)', maxHeight: '80vh', background: '#fff', borderRadius: 14,
+            zIndex: 201, display: 'flex', flexDirection: 'column',
+            boxShadow: '0 24px 64px rgba(0,0,0,.22)' }}>
+
+            {/* Header */}
+            <div style={{ background: NAVY, borderRadius: '14px 14px 0 0', padding: '16px 20px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>
+                    {pipelineModal.stage} · {pipelineModal.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>
+                    {pipelineModal.total} order{pipelineModal.total !== 1 ? 's' : ''} · top 10 shown
+                  </div>
+                </div>
+                <button onClick={() => setPipelineModal(null)}
+                  style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', padding: '0 0 4px' }}>
+              {pipelineLoading
+                ? <div style={{ padding: 32, textAlign: 'center', fontSize: 12, color: INK3 }}>Loading orders…</div>
+                : pipelineOrders.length === 0
+                ? <div style={{ padding: 32, textAlign: 'center', fontSize: 12, color: INK3 }}>No orders at this stage</div>
+                : (
+                  <table className="tbl" style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th>Sales Order</th>
+                        <th>Customer</th>
+                        <th>Product</th>
+                        <th>Due</th>
+                        <th>WO Status</th>
+                        <th>Stage progress</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pipelineOrders.map((o, i) => {
+                        const STAGES = ['S1','S2','S3','S4','S5','S6','S7','S8','S9']
+                        // If DB has no completed stage history, infer: all stages before the first active stage are completed
+                        const firstActiveIdx = STAGES.findIndex(s => o.activeStages.includes(s))
+                        const inferredCompleted = o.completedStages.length === 0 && firstActiveIdx > 0
+                          ? STAGES.slice(0, firstActiveIdx)
+                          : o.completedStages
+                        return (
+                          <tr key={i}>
+                            {td(o.salesOrder, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
+                            {td(o.customer,   { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                            {td(o.product,    { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                            {td(o.dueDate)}
+                            {td(<WOStatusBadge status={o.woStatus} />)}
+                            <td style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, verticalAlign: 'middle' }}>
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                {STAGES.map(s => {
+                                  const isCompleted = inferredCompleted.includes(s)
+                                  const isActive    = o.activeStages.includes(s)
+                                  return (
+                                    <div key={s} title={s} style={{
+                                      width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      fontSize: 11, fontWeight: 700,
+                                      background: isCompleted ? GREEN : isActive ? NAVY : '#D1D5DB',
+                                      color: '#fff',
+                                      border: isActive ? `2px solid ${ORANGE}` : 'none',
+                                    }}>
+                                      {isCompleted ? '✓' : isActive ? '●' : ''}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )
+              }
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${BORDER}`, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+              <a href={`${erpBase}/app/order-pipeline?stage=${pipelineModal.stage}`} target="_blank" rel="noreferrer"
+                style={{ fontSize: 11, fontWeight: 600, padding: '7px 16px', borderRadius: 8,
+                  background: NAVY, color: '#fff', textDecoration: 'none' }}>
+                Open in pipeline ↗
+              </a>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── MR Detail Drawer ── */}
       {drawerMR && (

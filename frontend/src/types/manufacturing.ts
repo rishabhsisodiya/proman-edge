@@ -26,6 +26,13 @@ export interface CompletingWO {
   wo: string; customer: string; product: string; due: string
   status: string; completion: number; rag: 'red' | 'amber' | 'green'
 }
+export interface PipelineOrder {
+  salesOrder: string; customer: string; product: string
+  dueDate: string; woStatus: string
+  completedStages: string[]
+  activeStages: string[]
+}
+
 export interface QualityRejection {
   wo: string; product: string; stage: string
   defect: string; disposition: string; rag: 'red' | 'amber'
