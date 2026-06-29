@@ -311,52 +311,18 @@ async function getPipelineStages(): Promise<PipelineStage[]> {
   const rows = await query<{
     stage_code: string; orders: number; red: number; amber: number; green: number
   }>(
-    `SELECT
-       t.stage AS stage_code,
-       COUNT(*) AS orders,
-       SUM(t.rag = 'red')   AS red,
-       SUM(t.rag = 'amber') AS amber,
-       SUM(t.rag = 'green') AS green
-     FROM (
-       -- Part 1: Work Orders (exclude Cancelled), each placed by its OWN status
-       SELECT
-         CASE
-           WHEN wo.status IN ('Draft', 'Not Started') THEN 'S5'
-           WHEN wo.status = 'In Process'              THEN 'S6'
-           WHEN wo.status = 'Completed'               THEN 'S7'
-           WHEN wo.status = 'Closed' THEN
-             CASE WHEN EXISTS (
-               SELECT 1 FROM \`tabDelivery Note Item\` di
-               JOIN \`tabDelivery Note\` dn ON dn.name = di.parent AND dn.docstatus = 1
-               WHERE di.against_sales_order = wo.sales_order
-             ) THEN 'S8' ELSE 'S7' END
-           ELSE 'S6'
-         END AS stage,
-         CASE
-           WHEN wo.expected_delivery_date IS NULL                        THEN 'green'
-           WHEN wo.expected_delivery_date < CURDATE()                   THEN 'red'
-           WHEN wo.expected_delivery_date <= CURDATE() + INTERVAL ? DAY THEN 'amber'
-           ELSE 'green'
-         END AS rag
-       FROM \`tabWork Order\` wo
-       WHERE wo.docstatus < 2 AND wo.status <> 'Cancelled'
-
-       UNION ALL
-
-       -- Part 2: SOs with no active WO → stage from tabOrder Pipeline (pre-computed, fast)
-       SELECT op.stage, 'green' AS rag
-       FROM \`tabOrder Pipeline\` op
-       LEFT JOIN (
-         SELECT DISTINCT sales_order AS so
-         FROM \`tabWork Order\`
-         WHERE docstatus < 2 AND status <> 'Cancelled' AND sales_order <> ''
-       ) hw ON hw.so = op.sales_order_id
-       WHERE hw.so IS NULL
-     ) t
-     WHERE t.stage != 'S0'
-     GROUP BY t.stage
-     ORDER BY t.stage`,
-    [ATRISK_DAYS],
+    `SELECT st.name AS stage_code,
+       COUNT(op.name) AS orders,
+       SUM(so.delivery_date IS NOT NULL AND so.delivery_date < CURDATE()) AS red,
+       SUM(so.delivery_date IS NOT NULL AND so.delivery_date BETWEEN CURDATE() AND CURDATE()+INTERVAL ? DAY) AS amber,
+       SUM(op.name IS NOT NULL AND (so.delivery_date IS NULL OR so.delivery_date > CURDATE()+INTERVAL ? DAY)) AS green
+     FROM \`tabOrder Pipeline Stage\` st
+     LEFT JOIN \`tabOrder Pipeline\` op ON op.stage_name LIKE CONCAT('%', st.stage_name, '%')
+     LEFT JOIN \`tabSales Order\` so ON so.name = op.sales_order_id
+     WHERE st.name <> 'S0'
+     GROUP BY st.name, st.stage_name
+     ORDER BY st.name`,
+    [ATRISK_DAYS, ATRISK_DAYS],
   )
 
   // Build a full S1–S9 map (0 counts for stages with no data)
@@ -736,11 +702,9 @@ export async function getPipelineOrdersByStage(stageId: string): Promise<Pipelin
     return {
       salesOrder:      r.sales_order,
       customer:        r.customer,
-      product:         r.production_item,
-      dueDate:         r.expected_delivery_date
-        ? new Date(r.expected_delivery_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-        : '—',
-      woStatus:        r.wo_status,
+      product:         '—',
+      dueDate:         '—',
+      woStatus:        '—',
       completedStages: minActiveIdx > 0 ? ALL_STAGES.slice(0, minActiveIdx) : [],
       activeStages,
     }
