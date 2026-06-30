@@ -10,10 +10,14 @@ import { colors } from '@/lib/brand'
 
 // Roles that can switch to other dashboards
 const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
-  'sales-head': [{ label: 'Manufacturing Head', slug: 'manufacturing-head' }],
+  'sales-head': [
+    { label: 'Manufacturing Head', slug: 'manufacturing-head' },
+    { label: 'Procurement Head',   slug: 'procurement-head'  },
+  ],
   'md': [
     { label: 'Sales Head',         slug: 'sales-head'         },
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
+    { label: 'Procurement Head',   slug: 'procurement-head'  },
   ],
 }
 

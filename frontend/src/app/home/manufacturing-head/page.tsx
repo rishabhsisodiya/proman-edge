@@ -192,7 +192,10 @@ export default function ManufacturingHeadHomepage() {
   const [pipelineModal, setPipelineModal] = useState<{ stage: string; label: string; total: number } | null>(null)
   const { orders: pipelineOrders, isLoading: pipelineLoading } = usePipelineOrders(pipelineModal?.stage ?? null)
   const { detail: woDetail, isLoading: woLoading } = useWorkOrderDetail(drawerWO)
-  const switcherOptions = [{ label: 'Sales Head', slug: 'sales-head' }]
+  const switcherOptions = [
+    { label: 'Sales Head',       slug: 'sales-head'       },
+    { label: 'Procurement Head', slug: 'procurement-head' },
+  ]
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
