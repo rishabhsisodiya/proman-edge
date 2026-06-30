@@ -433,17 +433,12 @@ function OverduePOTracker({ rows, erpBase, onRowClick, onLogFollowUp }: {
 // ── ZONE 3b: Critical Material Shortage ──────────────────────────────────────
 
 function CriticalShortageTable({ rows, erpBase }: { rows: CriticalShortage[]; erpBase: string }) {
-  const blocking = rows.filter(r => r.rag === 'red').length
   return (
     <Card>
       <CardTitle
         icon="ti-package-off"
         title="Critical material shortage"
-        right={
-          <span style={{ fontSize: 10, fontWeight: 700, background: RED_BG, color: RED, padding: '2px 8px', borderRadius: 99 }}>
-            {blocking} blocking
-          </span>
-        }
+        right={<ViewAll href={`${erpBase}/app/work-order?status=In%20Process`} />}
       />
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -479,12 +474,6 @@ function CriticalShortageTable({ rows, erpBase }: { rows: CriticalShortage[]; er
             )}
           </tbody>
         </table>
-      </div>
-      <div style={{ borderTop: `1px solid ${BORDER}`, marginTop: 6, paddingTop: 7, textAlign: 'right' }}>
-        <a href={`${erpBase}/app/work-order?status=In%20Process`} target="_blank" rel="noreferrer"
-          style={{ fontSize: 10.5, color: NAVY, fontWeight: 600, textDecoration: 'none' }}>
-          View all in ERPNext ↗
-        </a>
       </div>
     </Card>
   )
