@@ -566,7 +566,12 @@ export default function ManufacturingHeadHomepage() {
                         const completed = STAGES.slice(0, maxActiveIdx).filter(s => !o.activeStages.includes(s))
                         return (
                           <tr key={i}>
-                            {td(o.salesOrder, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
+                            <td style={{ padding: '6px 12px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
+                              <a href={erpUrl(`sales-order/${encodeURIComponent(o.salesOrder)}`)} target="_blank" rel="noreferrer"
+                                style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>
+                                {o.salesOrder}
+                              </a>
+                            </td>
                             {td(o.customer,   { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                             {STAGES.map(s => {
                               const isCompleted = completed.includes(s)
