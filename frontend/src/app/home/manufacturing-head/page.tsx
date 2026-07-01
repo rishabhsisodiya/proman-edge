@@ -562,8 +562,10 @@ export default function ManufacturingHeadHomepage() {
                     </thead>
                     <tbody>
                       {pipelineRows.map((o, i) => {
+                        const minActiveIdx = Math.min(...o.activeStages.map(s => STAGES.indexOf(s)))
                         const maxActiveIdx = Math.max(...o.activeStages.map(s => STAGES.indexOf(s)))
-                        const completed = STAGES.slice(0, maxActiveIdx).filter(s => !o.activeStages.includes(s))
+                        const completed  = STAGES.slice(0, minActiveIdx)
+                        const inBetween  = STAGES.filter((s, idx) => idx > minActiveIdx && idx < maxActiveIdx && !o.activeStages.includes(s))
                         return (
                           <tr key={i}>
                             <td style={{ padding: '6px 12px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
@@ -574,8 +576,9 @@ export default function ManufacturingHeadHomepage() {
                             </td>
                             {td(o.customer,   { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
                             {STAGES.map(s => {
-                              const isCompleted = completed.includes(s)
-                              const isActive    = o.activeStages.includes(s)
+                              const isCompleted  = completed.includes(s)
+                              const isActive     = o.activeStages.includes(s)
+                              const isInBetween  = inBetween.includes(s)
                               return (
                                 <td key={s} style={{ padding: '6px 4px', borderBottom: `1px solid ${BORDER}`, textAlign: 'center', verticalAlign: 'middle' }}>
                                   <div style={{
@@ -583,10 +586,10 @@ export default function ManufacturingHeadHomepage() {
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     fontSize: 10, fontWeight: 700,
                                     background: isCompleted ? GREEN : isActive ? NAVY : '#D1D5DB',
-                                    color: '#fff',
-                                    border: isActive ? `2px solid ${ORANGE}` : 'none',
+                                    color: isInBetween ? ORANGE : '#fff',
+                                    border: isActive ? `2px solid ${ORANGE}` : isInBetween ? `2px dashed ${ORANGE}` : 'none',
                                   }}>
-                                    {isCompleted ? '✓' : isActive ? '●' : ''}
+                                    {isCompleted ? '✓' : isActive ? '●' : isInBetween ? '~' : ''}
                                   </div>
                                 </td>
                               )
