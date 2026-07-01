@@ -41,19 +41,31 @@ const RAG_BG: Record<string, string> = { red: RED_BG,   amber: AMBER_BG, green: 
 const RAG_TX: Record<string, string> = { red: RED,      amber: AMBER,    green: GREEN    }
 const RAG_HX: Record<string, string> = { red: RED,      amber: AMBER,    green: GREEN    }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
+function weekEndISO() {
+  const d = new Date(); d.setDate(d.getDate() + 7)
+  return d.toISOString().slice(0, 10)
+}
+
 const ERP_URLS: Record<string, string> = {
-  prPending:  '/app/purchase-order?docstatus=0',
+  prPending:  '/app/purchase-order?workflow_state=["like","Awaiting%25"]',
   poOpen:     '/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]',
-  poOverdue:  '/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]&per_received=["<",100]',
+  poOverdue:  `/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]&per_received=["<",100]&schedule_date=["<","${todayISO()}"]`,
   critical:   '/app/bin',
   invoices:   '/app/purchase-invoice',
-  grnDue:     '/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]',
+  grnDue:     '/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]&per_received=["<",100]',
   newPO:      '/app/purchase-order/new',
   newGRN:     '/app/purchase-receipt/new',
   scorecard:  '/app/supplier-scorecard',
   analytics:  '/app/purchase-analytics',
   budget:     '/app/procurement-budget',
   wo:         '/app/work-order?status=["in",["Not Started","In Process"]]',
+}
+
+function erpExpectedReceiptsUrl() {
+  return `/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]&per_received=["<",100]&schedule_date=["between",["${todayISO()}","${weekEndISO()}"]]`
 }
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
@@ -438,7 +450,7 @@ function CriticalShortageTable({ rows, erpBase }: { rows: CriticalShortage[]; er
       <CardTitle
         icon="ti-package-off"
         title="Critical material shortage"
-        right={<ViewAll href={`${erpBase}/app/work-order?status=In%20Process`} />}
+        right={<ViewAll href={erpBase + ERP_URLS.wo} />}
       />
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -488,9 +500,8 @@ function VendorPerformance({ data, mode, onModeChange, erpBase }: {
   erpBase: string
 }) {
   // If selected mode has no data, auto-promote to Q then Y
-  const effectiveMode: VendorMode = (data[mode] ?? []).length > 0 ? mode
-    : (data['Q'] ?? []).length > 0 ? 'Q' : 'Y'
-  const rows = data[effectiveMode] ?? []
+  const effectiveMode = mode
+  const rows = data[mode] ?? []
   return (
     <Card>
       <CardTitle
@@ -789,7 +800,7 @@ function ExpectedReceiptsCard({ rows, erpBase }: { rows: ExpectedReceipt[]; erpB
         icon="ti-calendar-event"
         title="Expected receipts this week"
         note="next 7 days"
-        right={<ViewAll href={erpBase + ERP_URLS.grnDue} />}
+        right={<ViewAll href={erpBase + erpExpectedReceiptsUrl()} />}
       />
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -1143,15 +1154,21 @@ export default function ProcurementHeadPage() {
 
     let result: ProcurementActionResult
     try {
-      if (action === 'approve')   result = await approvePO(poNo)
+      if (action === 'approve')       result = await approvePO(poNo)
       else if (action === 'return')   result = await returnPO(poNo, extra!)
-      else result = await logFollowUp(poNo, extra!)
-    } catch {
-      showToast('Request failed — please try again'); return
+      else                            result = await logFollowUp(poNo, extra!)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Request failed — please try again'
+      showToast(`⚠ ${msg}`); return
     }
 
     if (result.ok) {
-      showToast(result.summary ?? 'Done')
+      const s = result.summary
+      const msg = typeof s === 'string' ? s
+        : s && 'purchase_receipt' in s ? `GRN ${s.purchase_receipt} created`
+        : s && 'logged_at' in s       ? `Follow-up logged`
+        : 'Done'
+      showToast(msg)
       setDrawer({ type: 'closed' })
       refresh()
     } else if (result.error?.code === 'WORKFLOW_NO_TRANSITION') {
@@ -1371,7 +1388,13 @@ export default function ProcurementHeadPage() {
           erpBase={erpBase}
           onLogGRN={async poNo => {
             const result = await makeGRN(poNo)
-            if (result.ok) { showToast(result.summary ?? 'GRN created'); refresh() }
+            if (result.ok) {
+              const s = result.summary
+              const msg = typeof s === 'string' ? s
+                : s && 'purchase_receipt' in s ? `GRN ${s.purchase_receipt} created`
+                : 'GRN created'
+              showToast(msg); refresh()
+            }
             else showToast(result.error?.message ?? 'GRN failed')
           }}
           onLogFollowUp={poNo => handleAction(poNo, 'followup')}

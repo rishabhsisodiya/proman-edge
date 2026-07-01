@@ -173,10 +173,22 @@ export interface PODetail {
   lastFollowup: string | null
 }
 
+export interface GrnSummary {
+  purchase_order: string
+  purchase_receipt: string
+  docstatus: number
+}
+
+export interface FollowUpSummary {
+  purchase_order: string
+  comment: string
+  logged_at: string
+}
+
 export interface ProcurementActionResult {
   ok: boolean
   widget: string
-  summary?: string
+  summary?: string | GrnSummary | FollowUpSummary
   deepLink?: string
   error?: {
     code: string

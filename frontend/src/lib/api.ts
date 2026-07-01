@@ -14,4 +14,13 @@ api.interceptors.request.use(config => {
   return config
 })
 
+// Extract actual error message from response body instead of generic Axios message
+api.interceptors.response.use(
+  res => res,
+  err => {
+    const msg = err?.response?.data?.error ?? err?.message ?? 'Request failed'
+    return Promise.reject(new Error(msg))
+  },
+)
+
 export default api
