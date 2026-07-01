@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { getManufacturingHomepageFromDB, getWorkOrderDetail, getMaterialRequestDetail, getPipelineOrdersByStage } from '../services/manufacturingServiceDB'
+import { getManufacturingHomepageFromDB, getWorkOrderDetail, getMaterialRequestDetail, getPipelineOrdersByStage, getAllPipelineOrders } from '../services/manufacturingServiceDB'
 
 const router = Router()
 
@@ -38,6 +38,18 @@ router.get('/work-order/:wo', async (req: Request, res: Response) => {
 router.get('/pipeline-orders/:stage', async (req: Request, res: Response) => {
   try {
     const orders = await getPipelineOrdersByStage(req.params.stage)
+    res.json({ success: true, data: orders })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    res.status(500).json({ success: false, error: message })
+  }
+})
+
+router.get('/pipeline-orders-all', async (req: Request, res: Response) => {
+  try {
+    const page   = Math.max(1, parseInt(req.query.page as string) || 1)
+    const search = (req.query.search as string) ?? ''
+    const orders = await getAllPipelineOrders(page, search)
     res.json({ success: true, data: orders })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

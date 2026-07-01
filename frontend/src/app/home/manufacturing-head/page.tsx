@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useManufacturingHomepage } from '@/hooks/useManufacturingHomepage'
 import { useWorkOrderDetail } from '@/hooks/useWorkOrderDetail'
-import { usePipelineOrders } from '@/hooks/usePipelineOrders'
-import type { PipelineStage, SubStage } from '@/types/manufacturing'
+import type { PipelineStage, SubStage, PipelineOrder } from '@/types/manufacturing'
+import api from '@/lib/api'
 import { colors } from '@/lib/brand'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -189,13 +189,55 @@ export default function ManufacturingHeadHomepage() {
   const { user, isLoading: userLoading } = useCurrentUser()
   const { data, isLoading, isError }     = useManufacturingHomepage()
   const [drawerWO, setDrawerWO]          = useState<string | null>(null)
-  const [pipelineModal, setPipelineModal] = useState<{ stage: string; label: string; total: number } | null>(null)
-  const { orders: pipelineOrders, isLoading: pipelineLoading } = usePipelineOrders(pipelineModal?.stage ?? null)
+  const [pipelineOpen, setPipelineOpen]  = useState(false)
+  const [pipelinePage, setPipelinePage]  = useState(1)
+  const [pipelineRows, setPipelineRows]  = useState<PipelineOrder[]>([])
+  const [pipelineLoadingMore, setPipelineLoadingMore] = useState(false)
+  const [pipelineHasMore, setPipelineHasMore] = useState(true)
+  const [pipelineSearch, setPipelineSearch] = useState('')
+  const [pipelineSearchActive, setPipelineSearchActive] = useState(false)
   const { detail: woDetail, isLoading: woLoading } = useWorkOrderDetail(drawerWO)
   const switcherOptions = [
     { label: 'Sales Head',       slug: 'sales-head'       },
     { label: 'Procurement Head', slug: 'procurement-head' },
   ]
+
+  const fetchPipelineOrders = async (page: number, append: boolean, search = '') => {
+    setPipelineLoadingMore(true)
+    try {
+      const q = search ? `&search=${encodeURIComponent(search)}` : ''
+      const res = await api.get<{ success: boolean; data: PipelineOrder[] }>(`/api/v1/manufacturing/pipeline-orders-all?page=${page}${q}`)
+      const rows = res.data.data
+      setPipelineRows(prev => append ? [...prev, ...rows] : rows)
+      setPipelineHasMore(rows.length === 10)
+      setPipelinePage(page)
+    } finally {
+      setPipelineLoadingMore(false)
+    }
+  }
+
+  const togglePipeline = () => {
+    if (pipelineOpen) {
+      setPipelineOpen(false)
+      setPipelineSearch('')
+      setPipelineSearchActive(false)
+    } else {
+      setPipelineOpen(true)
+      if (pipelineRows.length === 0) fetchPipelineOrders(1, false)
+    }
+  }
+
+  const handlePipelineSearch = (val: string) => {
+    if (!val.trim()) {
+      setPipelineSearchActive(false)
+      setPipelineSearch('')
+      fetchPipelineOrders(1, false, '')
+      return
+    }
+    setPipelineSearchActive(true)
+    setPipelineSearch(val)
+    fetchPipelineOrders(1, false, val.trim())
+  }
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -460,13 +502,112 @@ export default function ManufacturingHeadHomepage() {
           {/* ── Operations pipeline ── */}
           <Card className="mfg-card">
             <CardTitle icon="ti-layout-kanban" title="Operations pipeline · S1 to S9"
-              right={<ViewAll href={erpUrl('order-pipeline')} label="Open pipeline ↗" />} />
+              right={
+                <button onClick={togglePipeline} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: NAVY, padding: 0 }}>
+                  {pipelineOpen ? 'Close pipeline ↑' : 'Open pipeline ↓'}
+                </button>
+              } />
             <div className="mfg-pipe">
               {pipelineStages.map((s) => (
                 <PipelineTile key={s.short} s={{ ...s, color: STAGE_COLORS[s.short] ?? s.color }}
-                  onSelect={() => setPipelineModal({ stage: s.short, label: s.label, total: s.red + s.amber + s.green + s.hold })} />
+                  onSelect={() => window.open(`${erpBase}/app/order-pipeline?stage_name=${encodeURIComponent(JSON.stringify(['like', `%${s.label}%`]))}`, '_blank')} />
               ))}
             </div>
+
+            {/* ── Inline expanded pipeline view ── */}
+            {pipelineOpen && (() => {
+              const STAGES = ['S1','S2','S3','S4','S5','S6','S7','S8','S9']
+              const STAGE_LABELS: Record<string, string> = {
+                S1:'Engineering', S2:'Prod Plan', S3:'Procurement', S4:'Vendor Dev',
+                S5:'Stores', S6:'Manufacturing', S7:'Quality', S8:'Dispatch', S9:'Install',
+              }
+              return (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="Search by Sales Order or Customer…"
+                      value={pipelineSearch}
+                      onChange={e => {
+                        setPipelineSearch(e.target.value)
+                        if (!e.target.value.trim() && pipelineSearchActive) handlePipelineSearch('')
+                      }}
+                      onKeyDown={e => e.key === 'Enter' && handlePipelineSearch(pipelineSearch)}
+                      style={{ flex: 1, fontSize: 11, padding: '6px 10px', border: `1px solid ${BORDER}`, borderRadius: 6, outline: 'none' }}
+                    />
+                    <button onClick={() => handlePipelineSearch(pipelineSearch)}
+                      style={{ fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6, background: NAVY, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                      Search
+                    </button>
+                    {pipelineSearchActive && (
+                      <button onClick={() => handlePipelineSearch('')}
+                        style={{ fontSize: 11, padding: '6px 10px', borderRadius: 6, background: 'none', border: `1px solid ${BORDER}`, cursor: 'pointer', color: INK2 }}>
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="tbl" style={{ fontSize: 11, minWidth: 900 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ minWidth: 130 }}>Sales Order</th>
+                        <th style={{ minWidth: 130 }}>Customer</th>
+                        {STAGES.map(s => (
+                          <th key={s} style={{ textAlign: 'center', minWidth: 72 }}>
+                            <div style={{ fontSize: 9, color: INK3 }}>{s}</div>
+                            <div style={{ fontSize: 9, fontWeight: 600 }}>{STAGE_LABELS[s]}</div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pipelineRows.map((o, i) => {
+                        const maxActiveIdx = Math.max(...o.activeStages.map(s => STAGES.indexOf(s)))
+                        const completed = STAGES.slice(0, maxActiveIdx).filter(s => !o.activeStages.includes(s))
+                        return (
+                          <tr key={i}>
+                            {td(o.salesOrder, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
+                            {td(o.customer,   { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                            {STAGES.map(s => {
+                              const isCompleted = completed.includes(s)
+                              const isActive    = o.activeStages.includes(s)
+                              return (
+                                <td key={s} style={{ padding: '6px 4px', borderBottom: `1px solid ${BORDER}`, textAlign: 'center', verticalAlign: 'middle' }}>
+                                  <div style={{
+                                    width: 24, height: 24, borderRadius: '50%', margin: '0 auto',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 10, fontWeight: 700,
+                                    background: isCompleted ? GREEN : isActive ? NAVY : '#D1D5DB',
+                                    color: '#fff',
+                                    border: isActive ? `2px solid ${ORANGE}` : 'none',
+                                  }}>
+                                    {isCompleted ? '✓' : isActive ? '●' : ''}
+                                  </div>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                  {pipelineHasMore && (
+                    <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                      <button
+                        onClick={() => fetchPipelineOrders(pipelinePage + 1, true)}
+                        disabled={pipelineLoadingMore}
+                        style={{ fontSize: 11, fontWeight: 600, color: NAVY, background: 'none', border: `1px solid ${NAVY}`, borderRadius: 6, padding: '5px 16px', cursor: 'pointer' }}>
+                        {pipelineLoadingMore ? 'Loading…' : 'View more ↓'}
+                      </button>
+                    </div>
+                  )}
+                  {!pipelineHasMore && pipelineRows.length > 0 && (
+                    <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 11, color: INK3 }}>All orders shown</div>
+                  )}
+                </div>
+                </div>
+              )
+            })()}
           </Card>
 
           {/* ── Row 1: Delayed | right stack ── */}
@@ -477,7 +618,7 @@ export default function ManufacturingHeadHomepage() {
                 right={<ViewAll href={erpUrl('work-order?status=%5B%22not+in%22%2C%5B%22Closed%22%2C%22Cancelled%22%2C%22Draft%22%5D%5D')} />} />
               <div className="tbl-wrap">
                 <table className="tbl">
-                  <thead><tr><th>WO No.</th><th>Customer</th><th>WO Status</th><th>Days over</th><th>RAG</th></tr></thead>
+                  <thead><tr><th>WO No.</th><th>Customer</th><th>WO Status</th><th>Days over</th><th>Risk Status</th></tr></thead>
                   <tbody>
                     {delayedWOs.map((r, i) => (
                       <tr key={i} className={`lb-${r.rag === 'green' ? 'g' : r.rag}`} style={{ cursor: 'pointer' }} onClick={() => setDrawerWO(r.wo)}>
@@ -634,98 +775,6 @@ export default function ManufacturingHeadHomepage() {
 
         </div>
       </div>
-
-      {/* ── Pipeline Stage Modal ── */}
-      {pipelineModal && (
-        <>
-          <div onClick={() => setPipelineModal(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 200 }} />
-          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-            width: 'min(96vw, 900px)', maxHeight: '80vh', background: '#fff', borderRadius: 14,
-            zIndex: 201, display: 'flex', flexDirection: 'column',
-            boxShadow: '0 24px 64px rgba(0,0,0,.22)' }}>
-
-            {/* Header */}
-            <div style={{ background: NAVY, borderRadius: '14px 14px 0 0', padding: '16px 20px', flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>
-                    {pipelineModal.stage} · {pipelineModal.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>
-                    {pipelineModal.total} order{pipelineModal.total !== 1 ? 's' : ''} · top 10 shown
-                  </div>
-                </div>
-                <button onClick={() => setPipelineModal(null)}
-                  style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
-              </div>
-            </div>
-
-            {/* Body */}
-            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', padding: '0 0 4px' }}>
-              {pipelineLoading
-                ? <div style={{ padding: 32, textAlign: 'center', fontSize: 12, color: INK3 }}>Loading orders…</div>
-                : pipelineOrders.length === 0
-                ? <div style={{ padding: 32, textAlign: 'center', fontSize: 12, color: INK3 }}>No orders at this stage</div>
-                : (
-                  <table className="tbl" style={{ fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        <th>Sales Order</th>
-                        <th>Customer</th>
-                        <th>Stage progress</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pipelineOrders.map((o, i) => {
-                        const STAGES = ['S1','S2','S3','S4','S5','S6','S7','S8','S9']
-                        // If DB has no completed stage history, infer: all stages before the first active stage are completed
-                        const maxActiveIdx = Math.max(...o.activeStages.map(s => STAGES.indexOf(s)))
-                        const inferredCompleted = STAGES.slice(0, maxActiveIdx).filter(s => !o.activeStages.includes(s))
-                        return (
-                          <tr key={i}>
-                            {td(o.salesOrder, { color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' })}
-                            {td(o.customer,   { color: INK2, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
-                            <td style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, verticalAlign: 'middle' }}>
-                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                {STAGES.map(s => {
-                                  const isCompleted = inferredCompleted.includes(s)
-                                  const isActive    = o.activeStages.includes(s)
-                                  return (
-                                    <div key={s} title={s} style={{
-                                      width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      fontSize: 11, fontWeight: 700,
-                                      background: isCompleted ? GREEN : isActive ? NAVY : '#D1D5DB',
-                                      color: '#fff',
-                                      border: isActive ? `2px solid ${ORANGE}` : 'none',
-                                    }}>
-                                      {isCompleted ? '✓' : isActive ? '●' : ''}
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                )
-              }
-            </div>
-
-            {/* Footer */}
-            <div style={{ padding: '12px 20px', borderTop: `1px solid ${BORDER}`, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
-              <a href={`${erpBase}/app/order-pipeline?stage_name=${encodeURIComponent(JSON.stringify(['like', `%${pipelineModal.label}%`]))}`} target="_blank" rel="noreferrer"
-                style={{ fontSize: 11, fontWeight: 600, padding: '7px 16px', borderRadius: 8,
-                  background: NAVY, color: '#fff', textDecoration: 'none' }}>
-                Open in pipeline ↗
-              </a>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* ── MR Detail Drawer ── */}
 

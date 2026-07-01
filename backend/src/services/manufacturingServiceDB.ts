@@ -711,6 +711,89 @@ export async function getPipelineOrdersByStage(stageId: string): Promise<Pipelin
   })
 }
 
+// ── All pipeline orders (paginated) ──────────────────────────────────────────
+export async function getAllPipelineOrders(page: number, search = ''): Promise<PipelineOrder[]> {
+  const ALL_STAGES = ['S1','S2','S3','S4','S5','S6','S7','S8','S9']
+  const limit  = 10
+  const offset = (page - 1) * limit
+
+  const woStageMap = (status: string, hasDN: number) => {
+    if (status === 'Closed')     return hasDN ? 'S8' : 'S7'
+    if (status === 'Completed')  return 'S7'
+    if (status === 'In Process') return 'S6'
+    return 'S5'
+  }
+
+  const searchFilter = search ? `AND (op.sales_order_id LIKE ? OR so.customer_name LIKE ?)` : ''
+  const woSearchFilter = search ? `AND (wo.sales_order LIKE ? OR so.customer_name LIKE ?)` : ''
+  const s = `%${search}%`
+
+  const rows = await query<{ sales_order: string; customer: string; source: string }>(
+    `(SELECT op.sales_order_id AS sales_order, COALESCE(so.customer_name,'—') AS customer, 'pre_wo' AS source
+      FROM \`tabOrder Pipeline\` op
+      LEFT JOIN \`tabSales Order\` so ON so.name = op.sales_order_id
+      LEFT JOIN (SELECT DISTINCT sales_order AS s FROM \`tabWork Order\`
+                 WHERE docstatus<2 AND status<>'Cancelled' AND sales_order<>'') hw ON hw.s=op.sales_order_id
+      WHERE hw.s IS NULL ${searchFilter})
+     UNION ALL
+     (SELECT DISTINCT wo.sales_order, COALESCE(so.customer_name,'—') AS customer, 'wo' AS source
+      FROM \`tabWork Order\` wo
+      LEFT JOIN \`tabSales Order\` so ON so.name = wo.sales_order
+      WHERE wo.docstatus<2 AND wo.status<>'Cancelled'
+        AND wo.sales_order IS NOT NULL AND wo.sales_order<>'' ${woSearchFilter})
+     LIMIT ? OFFSET ?`,
+    search ? [s, s, s, s, limit, offset] : [limit, offset],
+  )
+
+  if (rows.length === 0) return []
+
+  const soNames = [...new Set(rows.map(r => r.sales_order))]
+  const soPlaceholders = soNames.map(() => '?').join(',')
+
+  const siblings = await query<{ sales_order: string; status: string; has_dn: number }>(
+    `SELECT wo.sales_order, wo.status,
+       EXISTS (SELECT 1 FROM \`tabDelivery Note Item\` di
+               JOIN \`tabDelivery Note\` dn ON dn.name=di.parent AND dn.docstatus=1
+               WHERE di.against_sales_order=wo.sales_order) AS has_dn
+     FROM \`tabWork Order\` wo
+     WHERE wo.docstatus<2 AND wo.status<>'Cancelled'
+       AND wo.sales_order IN (${soPlaceholders})`,
+    soNames,
+  )
+
+  const opStages = await query<{ sales_order_id: string; stage: string }>(
+    `SELECT sales_order_id, stage FROM \`tabOrder Pipeline\`
+     WHERE sales_order_id IN (${soPlaceholders})`,
+    soNames,
+  )
+
+  const siblingMap = new Map<string, string[]>()
+  for (const s of siblings) {
+    const stage = woStageMap(s.status, s.has_dn)
+    const arr = siblingMap.get(s.sales_order) ?? []
+    if (!arr.includes(stage)) arr.push(stage)
+    siblingMap.set(s.sales_order, arr)
+  }
+
+  const opStageMap = new Map<string, string>()
+  for (const o of opStages) opStageMap.set(o.sales_order_id, o.stage)
+
+  return rows.map(r => {
+    const activeStages = siblingMap.get(r.sales_order)
+      ?? [opStageMap.get(r.sales_order) ?? 'S1']
+    const maxActiveIdx = Math.max(...activeStages.map(s => ALL_STAGES.indexOf(s)))
+    return {
+      salesOrder:      r.sales_order,
+      customer:        r.customer,
+      product:         '—',
+      dueDate:         '—',
+      woStatus:        '—',
+      completedStages: ALL_STAGES.slice(0, maxActiveIdx).filter(s => !activeStages.includes(s)),
+      activeStages,
+    }
+  })
+}
+
 // ── Main export ──────────────────────────────────────────────────────────────
 export async function getManufacturingHomepageFromDB(): Promise<ManufacturingHomepageData> {
   const [kpis, pipelineStages, delayedWOs, mfgSubStages, materialShortages, downtime, attendance, completingThisWeek, qualityRejections] =
