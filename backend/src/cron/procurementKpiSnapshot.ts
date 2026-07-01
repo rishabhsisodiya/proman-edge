@@ -69,9 +69,9 @@ export async function captureProcurementSnapshot() {
 }
 
 export function registerProcurementKpiSnapshotCron() {
-  // Runs at 23:55 every day (same cadence as manufacturing snapshot)
-  cron.schedule('55 23 * * *', captureProcurementSnapshot, { timezone: 'Asia/Kolkata' })
-  console.log('[procurementSnapshot] Cron registered — runs at 23:55 IST daily')
+  const schedule = process.env.KPI_SNAPSHOT_CRON ?? '55 23 * * *'
+  cron.schedule(schedule, captureProcurementSnapshot, { timezone: 'Asia/Kolkata' })
+  console.log(`[procurementSnapshot] Cron registered — schedule: "${schedule}" IST`)
 
   // Seed immediately on start if no snapshots exist yet
   if (readProcurementSnapshots().length === 0) {

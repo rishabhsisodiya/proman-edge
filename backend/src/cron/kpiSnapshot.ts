@@ -71,7 +71,7 @@ async function captureKpiSnapshot() {
 }
 
 export function registerKpiSnapshotCron() {
-  // Runs at 23:55 every day
-  cron.schedule('55 23 * * *', captureKpiSnapshot, { timezone: 'Asia/Kolkata' })
-  console.log('[kpiSnapshot] Cron registered — runs at 23:55 IST daily')
+  const schedule = process.env.KPI_SNAPSHOT_CRON ?? '55 23 * * *'
+  cron.schedule(schedule, captureKpiSnapshot, { timezone: 'Asia/Kolkata' })
+  console.log(`[kpiSnapshot] Cron registered — schedule: "${schedule}" IST`)
 }
