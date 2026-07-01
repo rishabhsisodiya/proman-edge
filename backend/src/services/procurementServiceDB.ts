@@ -439,13 +439,14 @@ async function getVendorPerformance(): Promise<Record<VendorMode, VendorBar[]>> 
   async function fetchMode(mode: VendorMode): Promise<VendorBar[]> {
     const [from, to] = vendorDateFilter(mode)
     const rows = await query<{
-      supplier: string; total_pos: number; on_time_pct: number
+      supplier: string; total_pos: number; received_pos: number; on_time_pct: number
     }>(
       `SELECT
          po.supplier,
-         COUNT(*) AS total_pos,
+         COUNT(*)                                          AS total_pos,
+         SUM(r.recd IS NOT NULL)                          AS received_pos,
          ROUND(100 * SUM(r.recd IS NOT NULL AND r.recd <= po.schedule_date)
-               / NULLIF(COUNT(*), 0), 1)                AS on_time_pct
+               / NULLIF(SUM(r.recd IS NOT NULL), 0), 1)  AS on_time_pct
        FROM \`tabPurchase Order\` po
        LEFT JOIN (
          SELECT pri.purchase_order, MAX(pr.posting_date) AS recd
@@ -456,7 +457,7 @@ async function getVendorPerformance(): Promise<Record<VendorMode, VendorBar[]>> 
        WHERE po.docstatus = 1
          AND po.transaction_date BETWEEN ? AND ?
        GROUP BY po.supplier
-       HAVING total_pos >= IF(? = 'M', 1, 3)
+       HAVING received_pos >= IF(? = 'M', 1, 3)
        ORDER BY on_time_pct DESC
        LIMIT 10`,
       [from, to, mode],
@@ -464,7 +465,7 @@ async function getVendorPerformance(): Promise<Record<VendorMode, VendorBar[]>> 
     return rows.map(r => {
       const pct = Number(r.on_time_pct ?? 0)
       const rag: Rag = pct >= 85 ? 'green' : pct >= 70 ? 'amber' : 'red'
-      return { supplier: r.supplier, totalPOs: r.total_pos, onTimePct: pct, rag }
+      return { supplier: r.supplier, totalPOs: Number(r.received_pos), onTimePct: pct, rag }
     })
   }
 
@@ -485,10 +486,10 @@ async function getSpendGauge(): Promise<SpendGauge> {
     query<{ category: string; spend: number }>(
       `SELECT
          CASE
-           WHEN poi.item_group = 'Services' THEN 'serv'
-           WHEN poi.item_group IN ('Consumable','Tool','Hardware','Fasteners') THEN 'cons'
-           WHEN poi.item_group IN ('Motor','Electrical','Bought Out/Electrical','Machined Components') THEN 'capex'
-           ELSE 'raw'
+           WHEN poi.item_group = 'Services' THEN 'Services'
+           WHEN poi.item_group IN ('Consumable','Tool','Hardware','Fasteners') THEN 'Consumables'
+           WHEN poi.item_group IN ('Motor','Electrical','Bought Out/Electrical','Machined Components') THEN 'Capex'
+           ELSE 'Raw Material'
          END AS category,
          SUM(poi.amount) AS spend
        FROM \`tabPurchase Invoice Item\` poi
@@ -524,18 +525,23 @@ async function getSpendGauge(): Promise<SpendGauge> {
   const spendMap  = new Map(catSpend.map(r  => [r.category,  r.spend]))
   const budgetMap = new Map(catBudgets.map(r => [r.category, r.budget]))
 
-  const cats: SpendCategory[] = ['raw', 'cons', 'capex', 'serv']
-  const totalSpent  = cats.reduce((s, c) => s + (spendMap.get(c) ?? 0), 0)
-  const totalBudget = cats.reduce((s, c) => s + (budgetMap.get(c) ?? 0), 0)
+  const DB_CATS = ['Raw Material', 'Consumables', 'Capex', 'Services'] as const
+  const KEY_MAP: Record<string, SpendCategory> = {
+    'Raw Material': 'raw', 'Consumables': 'cons', 'Capex': 'capex', 'Services': 'serv',
+  }
+
+  const totalSpent  = DB_CATS.reduce((s, c) => s + Number(spendMap.get(c)  ?? 0), 0)
+  const totalBudget = DB_CATS.reduce((s, c) => s + Number(budgetMap.get(c) ?? 0), 0)
   const totalPct    = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0
 
   const categoryBreakdown = {} as SpendGauge['categoryBreakdown']
-  const allCats: SpendCategory[] = ['all', 'raw', 'cons', 'capex', 'serv']
-  for (const cat of allCats) {
-    const spent  = cat === 'all' ? totalSpent  : (spendMap.get(cat)  ?? 0)
-    const budget = cat === 'all' ? totalBudget : (budgetMap.get(cat) ?? 0)
+  categoryBreakdown['all'] = { spent: totalSpent, budget: totalBudget, pct: totalPct }
+  for (const dbCat of DB_CATS) {
+    const key    = KEY_MAP[dbCat]
+    const spent  = Number(spendMap.get(dbCat)  ?? 0)
+    const budget = Number(budgetMap.get(dbCat) ?? 0)
     const pct    = budget > 0 ? Math.round((spent / budget) * 100) : 0
-    categoryBreakdown[cat] = { spent, budget, pct }
+    categoryBreakdown[key] = { spent, budget, pct }
   }
 
   return {
