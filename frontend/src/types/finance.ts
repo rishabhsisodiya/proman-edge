@@ -75,6 +75,29 @@ export interface GstLiability {
   spark: SparkPoint[]
 }
 
+export interface GrossMarginEntity {
+  entity: string
+  income: number
+  expense: number
+  gmPct: number | null
+}
+
+export interface GrossMarginStat {
+  income: number
+  expense: number
+  grossMargin: number
+  gmPct: number | null
+  targetPct: number
+  byEntity: GrossMarginEntity[]
+  periodLabel: string
+}
+
+export interface GrossMargin {
+  M: GrossMarginStat
+  Q: GrossMarginStat
+  Y: GrossMarginStat
+}
+
 export interface PayablesDue {
   total: number
   vendors: number
@@ -151,5 +174,6 @@ export interface FinanceHomepageData {
   actionQueue: ActionQueue
   cfoApprovalQueue: BlockedWidget
   revenueVsTarget: BlockedWidget
-  divisionGrossMargin: BlockedWidget
+  grossMargin: GrossMargin
+  divisionGrossMarginSplit: BlockedWidget
 }

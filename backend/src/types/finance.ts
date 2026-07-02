@@ -85,6 +85,32 @@ export interface GstLiability {
   spark: SparkPoint[]
 }
 
+// ── W-FIN-12 Gross Margin (blended — Decision 5 resolved by Shivam) ─────────
+// Division split (division bars) is STILL blocked — see Decision 3 (cost_center coverage).
+
+export interface GrossMarginEntity {
+  entity: string
+  income: number
+  expense: number
+  gmPct: number | null
+}
+
+export interface GrossMarginStat {
+  income: number
+  expense: number
+  grossMargin: number
+  gmPct: number | null
+  targetPct: number       // fixed 24% across all instances, per Shivam
+  byEntity: GrossMarginEntity[]
+  periodLabel: string
+}
+
+export interface GrossMargin {
+  M: GrossMarginStat
+  Q: GrossMarginStat
+  Y: GrossMarginStat
+}
+
 // ── W-FIN-04 / 10 Payables ───────────────────────────────────────────────────
 
 export interface PayablesDue {
@@ -171,5 +197,6 @@ export interface FinanceHomepageData {
   actionQueue: ActionQueue
   cfoApprovalQueue: BlockedWidget
   revenueVsTarget: BlockedWidget
-  divisionGrossMargin: BlockedWidget
+  grossMargin: GrossMargin
+  divisionGrossMarginSplit: BlockedWidget
 }

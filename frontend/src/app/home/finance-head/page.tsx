@@ -6,7 +6,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useFinanceHomepage } from '@/hooks/useFinanceHomepage'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
-import type { SparkPoint, PeriodStat, TopDebtor, PayablesInvoiceRow } from '@/types/finance'
+import type { SparkPoint, PeriodStat, TopDebtor, PayablesInvoiceRow, GrossMarginStat } from '@/types/finance'
 
 // ── Design tokens (shared visual language with other homepages) ─────────────
 const NAVY      = colors.navy
@@ -51,7 +51,7 @@ function filterByLabel<T extends { entity: string }>(items: T[], label: string |
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
-function Card({ title, icon, right, children }: { title: string; icon: string; right?: React.ReactNode; children: React.ReactNode }) {
+function Card({ title, icon, right, children }: { title: React.ReactNode; icon: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 14, padding: '15px 16px', boxShadow: '0 1px 2px rgba(42,47,105,.05), 0 4px 12px rgba(42,47,105,.05)', display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -164,6 +164,41 @@ function PeriodTabs({ period, onChange }: { period: 'M' | 'Q' | 'Y'; onChange: (
   )
 }
 
+function PeriodTabsLight({ period, onChange }: { period: 'M' | 'Q' | 'Y'; onChange: (p: 'M' | 'Q' | 'Y') => void }) {
+  return (
+    <span style={{ display: 'inline-flex', border: `1px solid ${BORDER}`, borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
+      {(['M', 'Q', 'Y'] as const).map(p => (
+        <button key={p} onClick={() => onChange(p)} style={{
+          fontSize: 9, fontWeight: 700, padding: '2px 8px', border: 'none',
+          background: period === p ? NAVY : '#fff', color: period === p ? '#fff' : INK2, cursor: 'pointer',
+        }}>{p}</button>
+      ))}
+    </span>
+  )
+}
+
+function GaugeRing({ pct, target, subLabel }: { pct: number | null; target: number; subLabel: string }) {
+  const r = 42, c = 2 * Math.PI * r
+  const clamped = Math.max(0, Math.min(100, pct ?? 0))
+  const color = pct === null ? INK3 : pct >= target ? GREEN : pct >= target - 5 ? AMBER : RED
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7 }}>
+      <div style={{ position: 'relative', width: 104, height: 104 }}>
+        <svg viewBox="0 0 104 104" width="104" height="104" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx="52" cy="52" r={r} fill="none" stroke={BG} strokeWidth="10" />
+          <circle cx="52" cy="52" r={r} fill="none" stroke={color} strokeWidth="10" strokeLinecap="round"
+            strokeDasharray={`${c} ${c}`} strokeDashoffset={c * (1 - clamped / 100)} />
+        </svg>
+        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
+          <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 21, color: INK }}>{pct === null ? '—' : `${pct}%`}</div>
+          <div style={{ fontSize: 8.5, color: INK2, fontFamily: 'monospace', marginTop: 2 }}>{subLabel}</div>
+        </div>
+      </div>
+      <div style={{ fontSize: 9, color: INK2 }}>vs {target}% target</div>
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function FinanceHeadPage() {
@@ -177,6 +212,7 @@ export default function FinanceHeadPage() {
   const [aqTab, setAqTab]         = useState<0 | 1 | 2>(0)
   const [revPeriod, setRevPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gstPeriod, setGstPeriod] = useState<'M' | 'Q' | 'Y'>('M')
+  const [gmPeriod, setGmPeriod]   = useState<'M' | 'Q' | 'Y'>('M')
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showNotif, setShowNotif]       = useState(false)
@@ -218,6 +254,7 @@ export default function FinanceHeadPage() {
 
   const revStat: PeriodStat = data.revenue[revPeriod]
   const gstStat: PeriodStat = data.gstLiability[gstPeriod]
+  const gmStat: GrossMarginStat = data.grossMargin[gmPeriod]
 
   const bucketsFor = (label: string | null) => {
     if (!label) return { buckets: data.receivablesAgeing.buckets, unavailable: false }
@@ -426,8 +463,16 @@ export default function FinanceHeadPage() {
               })}
             </Card>
 
-            <Card title="Gross Margin — Division" icon="ti-chart-bar">
-              <BlockedState reason={data.divisionGrossMargin.reason} />
+            <Card title={<>Gross Margin — Division <span style={{ fontWeight: 400 }}>{gmStat.periodLabel}</span></>} icon="ti-chart-bar" right={<PeriodTabsLight period={gmPeriod} onChange={setGmPeriod} />}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingBottom: 14, marginBottom: 4, borderBottom: `1px solid ${BORDER}` }}>
+                <GaugeRing pct={gmStat.gmPct} target={gmStat.targetPct} subLabel="Blended GM" />
+                {gmStat.gmPct === null && <div style={{ fontSize: 9.5, color: INK3, fontStyle: 'italic' }}>No income posted in this period</div>}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: INK2, marginBottom: 6 }}>
+                <span>Direct Income: <strong style={{ color: INK }}>{fmtMoney(gmStat.income)}</strong></span>
+                <span>Direct Expense: <strong style={{ color: INK }}>{fmtMoney(gmStat.expense)}</strong></span>
+              </div>
+              <BlockedState reason={data.divisionGrossMarginSplit.reason} />
             </Card>
           </div>
 

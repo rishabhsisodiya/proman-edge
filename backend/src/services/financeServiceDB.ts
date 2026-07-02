@@ -6,6 +6,7 @@ import type {
   OverdueReceivables, ReceivablesAgeing, AgeingBucket, TopDebtor,
   GstLiability, PayablesDue, PayablesInvoiceRow, ActionQueue,
   PaymentToRelease, JournalEntryPending, ApReconciliationItem, FinanceAlert,
+  GrossMargin, GrossMarginStat,
 } from '../types/finance'
 
 // ── Companies ────────────────────────────────────────────────────────────────
@@ -348,6 +349,64 @@ async function getGstLiability(companies: string[]): Promise<GstLiability> {
   return { M, Q, Y, spark: getFinanceSparkline('gstLiability') }
 }
 
+// ── W-FIN-12 — Gross Margin, blended (Decision 5: GM = Direct Income − Direct
+// Expenses, fixed 24% target, per Shivam). Division split is still blocked —
+// see divisionGrossMarginSplit below (Decision 3: cost_center coverage).
+
+const GM_TARGET_PCT = 24
+
+async function getGrossMarginForCompany(company: string, start: string, end: string): Promise<{ income: number; expense: number }> {
+  const rows = await query<{ income: number | null; expense: number | null }>(
+    `SELECT
+        (SELECT IFNULL(SUM(g.credit - g.debit), 0)
+           FROM \`tabGL Entry\` g
+           JOIN \`tabAccount\` a   ON a.name = g.account AND a.is_group = 0
+           JOIN \`tabAccount\` grp ON grp.is_group = 1 AND grp.root_type = 'Income'
+                                AND grp.name LIKE 'Direct Income%' AND grp.company = ?
+          WHERE g.is_cancelled = 0 AND g.company = ? AND a.lft > grp.lft AND a.rgt < grp.rgt
+            AND g.posting_date BETWEEN ? AND ?
+        ) AS income,
+        (SELECT IFNULL(SUM(g.debit - g.credit), 0)
+           FROM \`tabGL Entry\` g
+           JOIN \`tabAccount\` a   ON a.name = g.account AND a.is_group = 0
+           JOIN \`tabAccount\` grp ON grp.is_group = 1 AND grp.root_type = 'Expense'
+                                AND grp.name LIKE 'Direct Expenses%' AND grp.company = ?
+          WHERE g.is_cancelled = 0 AND g.company = ? AND a.lft > grp.lft AND a.rgt < grp.rgt
+            AND g.posting_date BETWEEN ? AND ?
+        ) AS expense`,
+    [company, company, start, end, company, company, start, end],
+  )
+  return { income: Number(rows[0]?.income ?? 0), expense: Number(rows[0]?.expense ?? 0) }
+}
+
+function gmPct(income: number, expense: number): number | null {
+  return income > 0 ? Math.round(((income - expense) / income) * 1000) / 10 : null
+}
+
+async function getGrossMarginStat(companies: string[], period: Period): Promise<GrossMarginStat> {
+  const { start, end, label } = periodRange(period)
+  const byEntity = await Promise.all(companies.map(async company => {
+    const { income, expense } = await getGrossMarginForCompany(company, start, end)
+    return { entity: company, income, expense, gmPct: gmPct(income, expense) }
+  }))
+  const income = byEntity.reduce((s, e) => s + e.income, 0)
+  const expense = byEntity.reduce((s, e) => s + e.expense, 0)
+  return {
+    income, expense, grossMargin: income - expense,
+    gmPct: gmPct(income, expense), targetPct: GM_TARGET_PCT,
+    byEntity, periodLabel: label,
+  }
+}
+
+async function getGrossMargin(companies: string[]): Promise<GrossMargin> {
+  const [M, Q, Y] = await Promise.all([
+    getGrossMarginStat(companies, 'M'),
+    getGrossMarginStat(companies, 'Q'),
+    getGrossMarginStat(companies, 'Y'),
+  ])
+  return { M, Q, Y }
+}
+
 // ── W-FIN-04 / 10 — Payables ─────────────────────────────────────────────────
 
 export async function getPayablesDueTotalForCompanies(
@@ -548,7 +607,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
 
   const [
     cashBank, revenue, overdueReceivables, receivablesAgeing,
-    gstLiability, payablesDue7d, payablesInvoices14d, actionQueue,
+    gstLiability, payablesDue7d, payablesInvoices14d, actionQueue, grossMargin,
   ] = await Promise.all([
     getCashBank(companies),
     getRevenue(companies),
@@ -558,6 +617,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
     getPayablesDue7d(companies),
     getPayablesInvoices14d(companies),
     getActionQueue(companies),
+    getGrossMargin(companies),
   ])
 
   return {
@@ -572,9 +632,10 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
     payablesDue7d,
     payablesInvoices14d,
     actionQueue,
+    grossMargin,
     // Blocked — see Finance_Dashboard_SQL_Queries.md + Shivam message (ERP-side work required)
-    cfoApprovalQueue:    { blocked: true, reason: 'No workflow_state on Payment Entry / Journal Entry, and no requires_cfo_approval field on Purchase Order. Awaiting ERP-side setup.' },
-    revenueVsTarget:     { blocked: true, reason: 'No Revenue Target doctype exists yet. Awaiting ERP-side setup.' },
-    divisionGrossMargin: { blocked: true, reason: 'Sales Invoice.cost_center is populated on <1% of records — no usable division split, and no COGS definition. Awaiting ERP-side data fix.' },
+    cfoApprovalQueue:         { blocked: true, reason: 'No workflow_state on Payment Entry / Journal Entry, and no requires_cfo_approval field on Purchase Order. Awaiting ERP-side setup.' },
+    revenueVsTarget:          { blocked: true, reason: 'No Revenue Target doctype exists yet. Awaiting ERP-side setup.' },
+    divisionGrossMarginSplit: { blocked: true, reason: 'Sales Invoice.cost_center is populated on <1% of records — no usable division split. Blended Gross Margin above is real (Decision 5 resolved); the division-wise breakdown is still blocked on cost_center coverage (Decision 3).' },
   }
 }
