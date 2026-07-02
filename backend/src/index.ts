@@ -5,8 +5,10 @@ import salesRoutes from './routes/sales'
 import authRoutes from './routes/auth'
 import manufacturingRoutes from './routes/manufacturing'
 import procurementRoutes from './routes/procurement'
+import financeRoutes from './routes/finance'
 import { registerKpiSnapshotCron } from './cron/kpiSnapshot'
 import { registerProcurementKpiSnapshotCron } from './cron/procurementKpiSnapshot'
+import { registerFinanceKpiSnapshotCron } from './cron/financeKpiSnapshot'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -32,9 +34,11 @@ app.use('/api/v1/auth', authRoutes)
 app.use('/api/v1/sales', salesRoutes)
 app.use('/api/v1/manufacturing', manufacturingRoutes)
 app.use('/api/v1/procurement', procurementRoutes)
+app.use('/api/v1/finance', financeRoutes)
 
 app.listen(PORT, () => {
   console.log(`Proman Edge backend running on http://localhost:${PORT}`)
   registerKpiSnapshotCron()
   registerProcurementKpiSnapshotCron()
+  registerFinanceKpiSnapshotCron()
 })

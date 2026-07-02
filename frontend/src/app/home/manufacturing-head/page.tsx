@@ -200,6 +200,7 @@ export default function ManufacturingHeadHomepage() {
   const switcherOptions = [
     { label: 'Sales Head',       slug: 'sales-head'       },
     { label: 'Procurement Head', slug: 'procurement-head' },
+    { label: 'Finance Head',     slug: 'finance-head'     },
   ]
 
   const fetchPipelineOrders = async (page: number, append: boolean, search = '') => {

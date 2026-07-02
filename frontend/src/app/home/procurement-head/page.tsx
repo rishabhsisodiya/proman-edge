@@ -12,6 +12,7 @@ import {
   makeGRN,
 } from '@/hooks/useProcurementHomepage'
 import { colors } from '@/lib/brand'
+import { formatMoney } from '@/lib/format'
 import type {
   ApprovalQueueItem, OverduePO, CriticalShortage,
   VendorBar, VendorMode, SpendGauge, SpendCategory,
@@ -70,12 +71,7 @@ function erpExpectedReceiptsUrl() {
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
-function fmtMoney(v: number | string) {
-  const n = Number(v)
-  if (n >= 1_00_00_000) return `₹${(n / 1_00_00_000).toFixed(2)} Cr`
-  if (n >= 1_00_000)    return `₹${(n / 1_00_000).toFixed(1)}L`
-  return `₹${Math.round(n).toLocaleString('en-IN')}`
-}
+const fmtMoney = formatMoney
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
@@ -1116,6 +1112,7 @@ export default function ProcurementHeadPage() {
   const switcherOptions = [
     { label: 'Sales Head',         slug: 'sales-head'         },
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
+    { label: 'Finance Head',       slug: 'finance-head'       },
   ]
 
   useEffect(() => {

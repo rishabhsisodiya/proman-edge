@@ -7,17 +7,20 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useQuotationDetail, extendQuotation, convertToSalesOrder } from '@/hooks/useQuotationDetail'
 import type { FunnelStage, FollowUpItem } from '@/types/sales'
 import { colors } from '@/lib/brand'
+import { formatMoney } from '@/lib/format'
 
 // Roles that can switch to other dashboards
 const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
   'sales-head': [
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
     { label: 'Procurement Head',   slug: 'procurement-head'  },
+    { label: 'Finance Head',       slug: 'finance-head'      },
   ],
   'md': [
     { label: 'Sales Head',         slug: 'sales-head'         },
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
     { label: 'Procurement Head',   slug: 'procurement-head'  },
+    { label: 'Finance Head',       slug: 'finance-head'      },
   ],
 }
 
@@ -94,13 +97,8 @@ if (typeof document !== 'undefined') {
 }
 
 // Spark value formatter per card index
-function fmtRupee(v: number): string {
-  if (v >= 10_000_000) return `₹${(v / 10_000_000).toFixed(1)}Cr`
-  if (v >= 100_000)    return `₹${Math.round(v / 100_000)}L`
-  if (v >= 1_000)      return `₹${Math.round(v / 1_000)}K`
-  return `₹${Math.round(v)}`
-}
-const fmtCr = (v: number) => `₹${v.toFixed(1)}Cr`
+const fmtRupee = formatMoney
+const fmtCr = (v: number) => formatMoney(v * 1_00_00_000)
 const SFMT: ((v: number) => string)[] = [
   v => String(v),
   v => String(v),

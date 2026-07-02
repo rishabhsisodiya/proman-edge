@@ -11,4 +11,5 @@ build/
 /proman-docs
 /docs
 frontend/tsconfig.tsbuildinfo
-backend/data/kpi_snapshots.json
+frontend/next-env.d.ts
+backend/data/*.json
