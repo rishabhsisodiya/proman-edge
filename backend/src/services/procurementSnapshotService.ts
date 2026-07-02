@@ -31,6 +31,7 @@ export function writeProcurementSnapshot(snapshot: ProcurementKpiSnapshot): void
     filtered.push(snapshot)
     filtered.sort((a, b) => a.date.localeCompare(b.date))
     const pruned = filtered.slice(-MAX_DAYS)
+    fs.mkdirSync(path.dirname(SNAPSHOT_FILE), { recursive: true })
     const tmp = SNAPSHOT_FILE + '.tmp'
     fs.writeFileSync(tmp, JSON.stringify(pruned, null, 2), 'utf8')
     fs.renameSync(tmp, SNAPSHOT_FILE)
