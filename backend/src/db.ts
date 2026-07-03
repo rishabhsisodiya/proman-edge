@@ -35,3 +35,17 @@ export async function query<T = unknown>(sql: string, params?: (string | number 
   const [rows] = await getPool().execute(sql, params)
   return rows as T[]
 }
+
+// For heavy aggregate queries that need SET SQL_BIG_SELECTS=1 at the session
+// level (e.g. full Stock Ledger Entry scans) — run on a single dedicated
+// connection so the SET applies to the query that follows it.
+export async function queryBigSelect<T = unknown>(sql: string, params?: (string | number | null)[]): Promise<T[]> {
+  const conn = await getPool().getConnection()
+  try {
+    await conn.query('SET SESSION sql_big_selects = 1')
+    const [rows] = await conn.execute(sql, params)
+    return rows as T[]
+  } finally {
+    conn.release()
+  }
+}

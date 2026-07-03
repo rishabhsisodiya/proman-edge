@@ -17,6 +17,7 @@ const ROLE_PRIORITY = [
   'Finance Head',
   'Engineering Head',
   'Procurement Head',
+  'Stores Head',
 ]
 
 const ROLE_SLUG: Record<string, string> = {
@@ -28,6 +29,7 @@ const ROLE_SLUG: Record<string, string> = {
   'Finance Head':        'finance-head',
   'Engineering Head':    'engineering-head',
   'Procurement Head':    'procurement-head',
+  'Stores Head':         'stores-head',
 }
 
 interface DBUser {

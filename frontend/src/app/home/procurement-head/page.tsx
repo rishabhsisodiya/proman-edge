@@ -1113,6 +1113,7 @@ export default function ProcurementHeadPage() {
     { label: 'Sales Head',         slug: 'sales-head'         },
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
     { label: 'Finance Head',       slug: 'finance-head'       },
+    { label: 'Stores Head',        slug: 'stores-head'        },
   ]
 
   useEffect(() => {

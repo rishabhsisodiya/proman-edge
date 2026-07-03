@@ -15,12 +15,14 @@ const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
     { label: 'Procurement Head',   slug: 'procurement-head'  },
     { label: 'Finance Head',       slug: 'finance-head'      },
+    { label: 'Stores Head',        slug: 'stores-head'       },
   ],
   'md': [
     { label: 'Sales Head',         slug: 'sales-head'         },
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
     { label: 'Procurement Head',   slug: 'procurement-head'  },
     { label: 'Finance Head',       slug: 'finance-head'      },
+    { label: 'Stores Head',        slug: 'stores-head'       },
   ],
 }
 
