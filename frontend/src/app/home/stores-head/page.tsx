@@ -125,7 +125,7 @@ export default function StoresHeadPage() {
 
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showNotif, setShowNotif]       = useState(false)
-  const [aqTab, setAqTab]               = useState<0 | 1 | 2>(0)
+  const [aqTab, setAqTab]               = useState<0 | 1>(0)
   const switcherRef = useRef<HTMLDivElement>(null)
   const notifRef    = useRef<HTMLDivElement>(null)
 
@@ -325,8 +325,8 @@ export default function StoresHeadPage() {
             href={erpUrl('pick-list?purpose=Material Transfer for Manufacture&status=["in",["Open","Draft"]]')} />
           <KpiTile label="Stock Below Reorder" value={String(data.stockBelowReorder.belowReorder)} sub={`${data.stockBelowReorder.stockOut} are stock-out`} accent={RED}
             href={erpUrl('bin')} />
-          <KpiTile label="Return Notes Open" value={String(data.returnNotesOpen.count)} sub="From production floor" accent={AMBER}
-            href={erpUrl('work-order?status=["in",["Completed","Closed"]]')} />
+          <KpiTile label="Subcontracting Orders" value={String(data.subcontractingOrders.count)} sub="Open · transferred · partial" accent={AMBER}
+            href={erpUrl('subcontracting-order?status=["in",["Open","Material Transferred","Partial Material Transferred","Partially Received"]]')} />
         </div>
 
         {/* Zone 3 — Pending GRN | Material issue | Stock alerts */}
@@ -442,11 +442,10 @@ export default function StoresHeadPage() {
                   return (
                     <div key={d.deliveryDate} style={{ padding: '8px 10px', borderRadius: 9, background: tone.bg, borderLeft: `3px solid ${tone.border}`, display: 'flex', alignItems: 'center', gap: 9 }}>
                       <span style={{ fontSize: 9.5, fontWeight: 700, width: 96, flexShrink: 0, color: tone.fg }}>{fmtDate(d.deliveryDate)}</span>
-                      <span style={{ flex: 1, fontSize: 10.5, color: INK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {d.top3Vendors}{d.vendorCount > 3 ? ` +${d.vendorCount - 3} more` : ''}
+                      <span style={{ flex: 1, fontSize: 10.5, color: INK }}>
+                        {d.poCount} PO{d.poCount === 1 ? '' : 's'} · {d.subcontractingCount} subcontracting
                       </span>
-                      <Pill tone={tone.pill}>{d.poCount} PO{d.poCount === 1 ? '' : 's'}</Pill>
-                      <span style={{ fontWeight: 700, fontSize: 11, color: NAVY, fontFamily: 'monospace' }}>{fmtMoney(d.totalValue)}</span>
+                      <Pill tone={tone.pill}>{d.totalCount} total</Pill>
                     </div>
                   )
                 })
@@ -481,28 +480,27 @@ export default function StoresHeadPage() {
           </div>
         </div>
 
-        {/* Zone 5 — Action queue (3 tabs, top 10 each + tab-aware "View all") */}
+        {/* Zone 5 — Action queue (2 tabs, top 10 each + tab-aware "View all") */}
         <Card title="Action queue" icon="ti-list-check" right={
           <a href={
             aqTab === 0 ? erpUrl('stock-reconciliation?docstatus=0')
-              : aqTab === 1 ? erpUrl('work-order?status=["in",["Completed","Closed"]]')
-                : erpUrl(`purchase-receipt?posting_date=${isoToday}`)
+              : erpUrl(`purchase-receipt?posting_date=${isoToday}`)
           } target="_blank" rel="noreferrer" style={{ fontSize: 10.5, fontWeight: 700, color: NAVY, textDecoration: 'none' }}>View all →</a>
         }>
           <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, gap: 2, marginTop: -4 }}>
             <AqTab label="Count variances" count={data.actionQueue.countVariances.length} on={aqTab === 0} onClick={() => setAqTab(0)} />
-            <AqTab label="Returns pending" count={data.actionQueue.returnsPending.length} on={aqTab === 1} onClick={() => setAqTab(1)} />
-            <AqTab label="GRNs raised today" on={aqTab === 2} onClick={() => setAqTab(2)} />
+            <AqTab label="GRNs raised today" on={aqTab === 1} onClick={() => setAqTab(1)} />
           </div>
           <div style={{ paddingTop: 12 }}>
             {aqTab === 0 && (
               data.actionQueue.countVariances.length === 0
                 ? <EmptyState>No open count variances.</EmptyState>
                 : <Table
-                    widths={['30%', '18%', '18%', '17%', '17%']}
-                    head={['Item', 'System', 'Physical', 'Variance', 'Value']}
+                    widths={['16%', '26%', '15%', '15%', '14%', '14%']}
+                    head={['Date', 'Item', 'System', 'Physical', 'Variance', 'Value']}
                     rows={data.actionQueue.countVariances.slice(0, 10).map(v => (
                       <>
+                        <td>{fmtDate(v.postingDate)}</td>
                         <td style={{ fontWeight: 700 }} title={v.itemCode}>{v.itemCode}</td>
                         <td>{v.systemQty}</td>
                         <td>{v.physicalQty}</td>
@@ -513,22 +511,6 @@ export default function StoresHeadPage() {
                   />
             )}
             {aqTab === 1 && (
-              data.actionQueue.returnsPending.length === 0
-                ? <EmptyState>No pending returns.</EmptyState>
-                : <Table
-                    widths={['20%', '46%', '16%', '18%']}
-                    head={['WO', 'Item returned', 'Qty', 'Status']}
-                    rows={data.actionQueue.returnsPending.slice(0, 10).map(r => (
-                      <>
-                        <td style={{ color: NAVY, fontWeight: 700 }}>{r.workOrder}</td>
-                        <td title={r.itemReturned}>{r.itemReturned}</td>
-                        <td style={{ fontWeight: 700, color: AMBER }}>{r.returnPendingQty}</td>
-                        <td style={{ overflow: 'visible' }}><Pill tone="n">{r.status}</Pill></td>
-                      </>
-                    ))}
-                  />
-            )}
-            {aqTab === 2 && (
               data.actionQueue.grnsRaisedToday.length === 0
                 ? <EmptyState>No GRNs raised yet today.</EmptyState>
                 : <Table
@@ -569,7 +551,7 @@ export default function StoresHeadPage() {
             <Card title="Quick actions" icon="ti-bolt">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <QuickAction icon="ti-package" label="Create GRN" href={erpUrl('purchase-receipt/new')} />
-                <QuickAction icon="ti-arrow-right" label="Issue Material" href={erpUrl('stock-entry/new')} />
+                <QuickAction icon="ti-list" label="Create Pick List" href={erpUrl('pick-list/new')} />
                 <QuickAction icon="ti-transfer" label="Stock Transfer" href={erpUrl('stock-entry/new')} />
                 <QuickAction icon="ti-corner-up-left" label="Material Return" href={erpUrl('work-order?status=["in",["Completed","Closed"]]')} />
                 <QuickAction icon="ti-package-off" label="Shortage Report" href={erpUrl('query-report/Work Order Stock Report')} />

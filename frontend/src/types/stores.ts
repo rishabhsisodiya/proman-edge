@@ -16,6 +16,7 @@ export interface PickListRow {
   pickedQty: number
   requiredQty: number
   status: string
+  pickDate: string
 }
 
 export interface StockOutAlertRow {
@@ -42,9 +43,8 @@ export interface StockAlerts {
 export interface ExpectedDeliveryDay {
   deliveryDate: string
   poCount: number
-  totalValue: number
-  top3Vendors: string
-  vendorCount: number
+  subcontractingCount: number
+  totalCount: number
 }
 
 export interface SlowMovingStockRow {
@@ -59,19 +59,13 @@ export interface SlowMovingStockRow {
 }
 
 export interface CountVarianceRow {
+  postingDate: string
   itemCode: string
   systemQty: number
   physicalQty: number
   varianceQty: number
   varianceValue: number
   reconciliation: string
-}
-
-export interface ReturnPendingRow {
-  workOrder: string
-  itemReturned: string
-  returnPendingQty: number
-  status: string
 }
 
 export interface GrnRaisedTodayRow {
@@ -85,7 +79,6 @@ export interface GrnRaisedTodayRow {
 
 export interface ActionQueue {
   countVariances: CountVarianceRow[]
-  returnsPending: ReturnPendingRow[]
   grnsRaisedToday: GrnRaisedTodayRow[]
 }
 
@@ -102,7 +95,7 @@ export interface StoresHomepageData {
   grnsPendingToday: { count: number }
   materialIssuesPending: { count: number }
   stockBelowReorder: { belowReorder: number; stockOut: number }
-  returnNotesOpen: { count: number }
+  subcontractingOrders: { count: number }
   pendingGrnList: PendingGrnRow[]
   materialIssueQueue: PickListRow[]
   stockAlerts: StockAlerts

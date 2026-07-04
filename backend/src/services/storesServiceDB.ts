@@ -2,9 +2,9 @@ import { query, queryBigSelect } from '../db'
 import { cacheGet, cacheSet } from '../cache/redis'
 import type {
   StoresHomepageData, GrnsPendingToday, MaterialIssuesPending, StockBelowReorder,
-  ReturnNotesOpen, PendingGrnRow, PickListRow, StockAlerts, StockOutAlertRow,
+  SubcontractingOrders, PendingGrnRow, PickListRow, StockAlerts, StockOutAlertRow,
   BelowReorderNoPoRow, ExpectedDeliveryDay, SlowMovingStockRow, ActionQueue,
-  CountVarianceRow, ReturnPendingRow, GrnRaisedTodayRow, WarehouseStockValueRow,
+  CountVarianceRow, GrnRaisedTodayRow, WarehouseStockValueRow,
 } from '../types/stores'
 
 // Single site (PISPL) — this DB connection is already scoped to the one
@@ -57,18 +57,16 @@ async function getStockBelowReorder(): Promise<StockBelowReorder> {
   return { belowReorder: Number(rows[0]?.below_reorder ?? 0), stockOut: Number(rows[0]?.stock_out ?? 0) }
 }
 
-// ── W-STR-04 — Return notes open (KPI) ───────────────────────────────────────
+// ── W-STR-04 — Subcontracting orders (KPI) ───────────────────────────────────
+// Replaces "Return Notes Open" (Work Order excess) in v2.
 
-async function getReturnNotesOpen(): Promise<ReturnNotesOpen> {
-  const rows = await query<{ return_notes_open: number }>(
-    `SELECT COUNT(DISTINCT wo.name) AS return_notes_open
-     FROM \`tabWork Order\` wo
-     JOIN \`tabWork Order Item\` woi ON woi.parent = wo.name
-     WHERE wo.docstatus = 1
-       AND wo.status IN ('Completed', 'Closed')
-       AND woi.transferred_qty > (woi.consumed_qty + woi.returned_qty)`,
+async function getSubcontractingOrders(): Promise<SubcontractingOrders> {
+  const rows = await query<{ subcontracting_pending: number }>(
+    `SELECT COUNT(*) AS subcontracting_pending
+     FROM \`tabSubcontracting Order\`
+     WHERE status IN ('Open', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
   )
-  return { count: Number(rows[0]?.return_notes_open ?? 0) }
+  return { count: Number(rows[0]?.subcontracting_pending ?? 0) }
 }
 
 // ── W-STR-06 — Pending GRN list ───────────────────────────────────────────────
@@ -108,25 +106,27 @@ async function getPendingGrnList(): Promise<PendingGrnRow[]> {
 
 async function getMaterialIssueQueue(): Promise<PickListRow[]> {
   const rows = await query<{
-    pick_list_id: string; wo_id: string | null; picked_qty: number; required_qty: number; status: string
+    pick_list_id: string; wo_id: string | null; picked_qty: number; required_qty: number
+    status: string; pick_date: string
   }>(
     `SELECT
         pl.name AS pick_list_id,
         pl.work_order AS wo_id,
         ROUND(SUM(pli.picked_qty), 2) AS picked_qty,
         ROUND(SUM(pli.qty), 2) AS required_qty,
-        pl.status
+        pl.status,
+        pl.creation AS pick_date
      FROM \`tabPick List\` pl
      JOIN \`tabPick List Item\` pli ON pli.parent = pl.name
      WHERE pl.purpose = 'Material Transfer for Manufacture'
        AND pl.status IN ('Open', 'Draft')
        AND pl.docstatus < 2
-     GROUP BY pl.name, pl.work_order, pl.status
-     ORDER BY pl.modified DESC`,
+     GROUP BY pl.name, pl.work_order, pl.status, pl.creation
+     ORDER BY pl.creation ASC`,
   )
   return rows.map(r => ({
     pickListId: r.pick_list_id, workOrder: r.wo_id, pickedQty: Number(r.picked_qty),
-    requiredQty: Number(r.required_qty), status: r.status,
+    requiredQty: Number(r.required_qty), status: r.status, pickDate: r.pick_date,
   }))
 }
 
@@ -200,30 +200,34 @@ async function getStockAlerts(): Promise<StockAlerts> {
   return { stockOutBlockingProduction, belowReorderNoOpenPo }
 }
 
-// ── W-STR-09 — Expected deliveries this week ──────────────────────────────────
+// ── W-STR-09 — Expected deliveries this week (PO + Subcontracting) ──────────
+// v2: unions Purchase Orders and Subcontracting Orders due in the next 7 days,
+// grouped into counts only — vendor names / ₹ value were dropped from this widget.
 
 async function getExpectedDeliveries(): Promise<ExpectedDeliveryDay[]> {
-  const rows = await query<{
-    delivery_date: string; po_count: number; total_value: number; top3_vendors: string; vendor_count: number
-  }>(
+  const rows = await query<{ delivery_date: string; po_count: number; subcontracting_count: number; total_count: number }>(
     `SELECT
-        po.schedule_date          AS delivery_date,
-        COUNT(*)                  AS po_count,
-        SUM(po.base_grand_total)  AS total_value,
-        SUBSTRING_INDEX(
-            GROUP_CONCAT(DISTINCT po.supplier ORDER BY po.base_grand_total DESC SEPARATOR ' | '),
-            ' | ', 3
-        )                         AS top3_vendors,
-        COUNT(DISTINCT po.supplier) AS vendor_count
-     FROM \`tabPurchase Order\` po
-     WHERE po.status IN ('To Receive', 'To Receive and Bill')
-       AND po.schedule_date BETWEEN CURDATE() AND CURDATE() + INTERVAL 7 DAY
-     GROUP BY po.schedule_date
-     ORDER BY po.schedule_date ASC`,
+        delivery_date,
+        SUM(is_po) AS po_count,
+        SUM(is_sco) AS subcontracting_count,
+        COUNT(*) AS total_count
+     FROM (
+         SELECT po.schedule_date AS delivery_date, 1 AS is_po, 0 AS is_sco
+         FROM \`tabPurchase Order\` po
+         WHERE po.status IN ('To Receive', 'To Receive and Bill')
+           AND po.schedule_date BETWEEN CURDATE() AND CURDATE() + INTERVAL 7 DAY
+         UNION ALL
+         SELECT sco.schedule_date, 0, 1
+         FROM \`tabSubcontracting Order\` sco
+         WHERE sco.status IN ('Open', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')
+           AND sco.schedule_date BETWEEN CURDATE() AND CURDATE() + INTERVAL 7 DAY
+     ) d
+     GROUP BY delivery_date
+     ORDER BY delivery_date ASC`,
   )
   return rows.map(r => ({
-    deliveryDate: r.delivery_date, poCount: Number(r.po_count), totalValue: Number(r.total_value),
-    top3Vendors: r.top3_vendors, vendorCount: Number(r.vendor_count),
+    deliveryDate: r.delivery_date, poCount: Number(r.po_count),
+    subcontractingCount: Number(r.subcontracting_count), totalCount: Number(r.total_count),
   }))
 }
 
@@ -259,15 +263,17 @@ async function getSlowMovingStock(): Promise<SlowMovingStockRow[]> {
   }))
 }
 
-// ── W-STR-11 — Action queue, tab 3 only: GRNs raised today ───────────────────
+// ── W-STR-11 — Action queue (2 tabs) ─────────────────────────────────────────
+// "Returns Pending" tab removed in v2, per the user.
 // Tab 1: open (draft) Stock Reconciliations where physical count != system stock.
 
 async function getCountVariances(): Promise<CountVarianceRow[]> {
   const rows = await query<{
-    item_code: string; system_qty: number; physical_qty: number
+    posting_date: string; item_code: string; system_qty: number; physical_qty: number
     variance_qty: number; variance_value: number; reconciliation: string
   }>(
     `SELECT
+        sr.posting_date AS posting_date,
         sri.item_code,
         sri.current_qty AS system_qty,
         sri.qty AS physical_qty,
@@ -281,35 +287,12 @@ async function getCountVariances(): Promise<CountVarianceRow[]> {
      LIMIT 50`,
   )
   return rows.map(r => ({
-    itemCode: r.item_code, systemQty: Number(r.system_qty), physicalQty: Number(r.physical_qty),
+    postingDate: r.posting_date, itemCode: r.item_code, systemQty: Number(r.system_qty), physicalQty: Number(r.physical_qty),
     varianceQty: Number(r.variance_qty), varianceValue: Number(r.variance_value), reconciliation: r.reconciliation,
   }))
 }
 
-// Tab 2: excess material not returned from completed/closed WOs — no "Material
-// Transfer Back" Stock Entry type exists here, so WO-based (same condition as W-STR-04).
-
-async function getReturnsPending(): Promise<ReturnPendingRow[]> {
-  const rows = await query<{
-    work_order: string; item_returned: string; return_pending_qty: number; status: string
-  }>(
-    `SELECT
-        wo.name AS work_order,
-        COALESCE(woi.item_name, woi.item_code) AS item_returned,
-        ROUND(woi.transferred_qty - woi.consumed_qty - woi.returned_qty, 2) AS return_pending_qty,
-        wo.status
-     FROM \`tabWork Order\` wo
-     JOIN \`tabWork Order Item\` woi ON woi.parent = wo.name
-     WHERE wo.docstatus = 1 AND wo.status IN ('Completed', 'Closed')
-       AND woi.transferred_qty > (woi.consumed_qty + woi.returned_qty)
-     ORDER BY return_pending_qty DESC
-     LIMIT 50`,
-  )
-  return rows.map(r => ({
-    workOrder: r.work_order, itemReturned: r.item_returned,
-    returnPendingQty: Number(r.return_pending_qty), status: r.status,
-  }))
-}
+// Tab 2: today's submitted Purchase Receipts.
 
 async function getGrnsRaisedToday(): Promise<GrnRaisedTodayRow[]> {
   const rows = await query<{
@@ -339,12 +322,11 @@ async function getGrnsRaisedToday(): Promise<GrnRaisedTodayRow[]> {
 }
 
 async function getActionQueue(): Promise<ActionQueue> {
-  const [countVariances, returnsPending, grnsRaisedToday] = await Promise.all([
+  const [countVariances, grnsRaisedToday] = await Promise.all([
     getCountVariances(),
-    getReturnsPending(),
     getGrnsRaisedToday(),
   ])
-  return { countVariances, returnsPending, grnsRaisedToday }
+  return { countVariances, grnsRaisedToday }
 }
 
 // ── W-STR-12 — Warehouse stock value ─────────────────────────────────────────
@@ -387,14 +369,14 @@ export async function getStoresHomepage(): Promise<StoresHomepageData> {
 
 async function computeStoresHomepage(): Promise<StoresHomepageData> {
   const [
-    grnsPendingToday, materialIssuesPending, stockBelowReorder, returnNotesOpen,
+    grnsPendingToday, materialIssuesPending, stockBelowReorder, subcontractingOrders,
     pendingGrnList, materialIssueQueue, stockAlerts, expectedDeliveries,
     slowMovingStock, actionQueue, warehouseStockValue,
   ] = await Promise.all([
     getGrnsPendingToday(),
     getMaterialIssuesPending(),
     getStockBelowReorder(),
-    getReturnNotesOpen(),
+    getSubcontractingOrders(),
     getPendingGrnList(),
     getMaterialIssueQueue(),
     getStockAlerts(),
@@ -410,7 +392,7 @@ async function computeStoresHomepage(): Promise<StoresHomepageData> {
     grnsPendingToday,
     materialIssuesPending,
     stockBelowReorder,
-    returnNotesOpen,
+    subcontractingOrders,
     pendingGrnList,
     materialIssueQueue,
     stockAlerts,

@@ -1,5 +1,5 @@
 // ── Stores Head homepage (HP-STR-001) — single site (PISPL) ─────────────────
-// Source: proman-docs/Store_Head_Dashboard_SQL_Queries.md
+// Source: proman-docs/Store_Head_Dashboard_SQL_Queries_v2.md
 
 // ── W-STR-01..04 KPIs ─────────────────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ export interface StockBelowReorder {
   stockOut: number
 }
 
-export interface ReturnNotesOpen {
+export interface SubcontractingOrders {
   count: number
 }
 
@@ -40,6 +40,7 @@ export interface PickListRow {
   pickedQty: number
   requiredQty: number
   status: string
+  pickDate: string
 }
 
 // ── W-STR-08 Stock alerts ─────────────────────────────────────────────────────
@@ -65,14 +66,13 @@ export interface StockAlerts {
   belowReorderNoOpenPo: BelowReorderNoPoRow[]
 }
 
-// ── W-STR-09 Expected deliveries ──────────────────────────────────────────────
+// ── W-STR-09 Expected deliveries (PO + Subcontracting) ───────────────────────
 
 export interface ExpectedDeliveryDay {
   deliveryDate: string
   poCount: number
-  totalValue: number
-  top3Vendors: string
-  vendorCount: number
+  subcontractingCount: number
+  totalCount: number
 }
 
 // ── W-STR-10 Slow-moving stock ────────────────────────────────────────────────
@@ -88,22 +88,17 @@ export interface SlowMovingStockRow {
   daysIdle: number
 }
 
-// ── W-STR-11 Action queue (3 tabs) ───────────────────────────────────────────
+// ── W-STR-11 Action queue (2 tabs) ───────────────────────────────────────────
+// "Returns Pending" tab removed in v2, per the user.
 
 export interface CountVarianceRow {
+  postingDate: string
   itemCode: string
   systemQty: number
   physicalQty: number
   varianceQty: number
   varianceValue: number
   reconciliation: string
-}
-
-export interface ReturnPendingRow {
-  workOrder: string
-  itemReturned: string
-  returnPendingQty: number
-  status: string
 }
 
 export interface GrnRaisedTodayRow {
@@ -117,7 +112,6 @@ export interface GrnRaisedTodayRow {
 
 export interface ActionQueue {
   countVariances: CountVarianceRow[]
-  returnsPending: ReturnPendingRow[]
   grnsRaisedToday: GrnRaisedTodayRow[]
 }
 
@@ -138,7 +132,7 @@ export interface StoresHomepageData {
   grnsPendingToday: GrnsPendingToday
   materialIssuesPending: MaterialIssuesPending
   stockBelowReorder: StockBelowReorder
-  returnNotesOpen: ReturnNotesOpen
+  subcontractingOrders: SubcontractingOrders
   pendingGrnList: PendingGrnRow[]
   materialIssueQueue: PickListRow[]
   stockAlerts: StockAlerts
