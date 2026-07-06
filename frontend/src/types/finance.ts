@@ -113,12 +113,12 @@ export interface PayablesInvoiceRow {
   entity: string
 }
 
-export interface PaymentToRelease {
-  name: string
-  party: string
-  paidAmount: number
-  modeOfPayment: string
-  postingDate: string
+export interface UnpaidInvoice {
+  invoiceNo: string
+  vendor: string
+  amount: number
+  dueDate: string
+  daysOverdue: number
   entity: string
 }
 
@@ -144,9 +144,19 @@ export interface ApReconciliationItem {
 }
 
 export interface ActionQueue {
-  paymentsToRelease: PaymentToRelease[]
+  paymentsToRelease: UnpaidInvoice[]
   journalEntriesPending: JournalEntryPending[]
   apReconciliation: ApReconciliationItem[]
+}
+
+export interface PoApprovalItem {
+  poNo: string
+  vendor: string
+  value: number
+  approvalStage: string
+  poDate: string
+  daysPending: number
+  entity: string
 }
 
 export interface FinanceAlert {
@@ -172,7 +182,7 @@ export interface FinanceHomepageData {
   payablesDue7d: PayablesDue
   payablesInvoices14d: PayablesInvoiceRow[]
   actionQueue: ActionQueue
-  cfoApprovalQueue: BlockedWidget
+  poApprovalQueue: PoApprovalItem[]
   revenueVsTarget: BlockedWidget
   grossMargin: GrossMargin
   divisionGrossMarginSplit: BlockedWidget

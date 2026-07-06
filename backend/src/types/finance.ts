@@ -130,12 +130,14 @@ export interface PayablesInvoiceRow {
 
 // ── W-FIN-11 Action queue ────────────────────────────────────────────────────
 
-export interface PaymentToRelease {
-  name: string
-  party: string
-  paidAmount: number
-  modeOfPayment: string
-  postingDate: string
+// Tab 1 — redefined per Shivam's v2 doc: fully-unpaid Purchase Invoices (last 12
+// months), with a 'Release' write-back that creates a draft Payment Entry.
+export interface UnpaidInvoice {
+  invoiceNo: string
+  vendor: string
+  amount: number
+  dueDate: string
+  daysOverdue: number
   entity: string
 }
 
@@ -161,9 +163,21 @@ export interface ApReconciliationItem {
 }
 
 export interface ActionQueue {
-  paymentsToRelease: PaymentToRelease[]
+  paymentsToRelease: UnpaidInvoice[]
   journalEntriesPending: JournalEntryPending[]
   apReconciliation: ApReconciliationItem[]
+}
+
+// ── W-FIN-08 Approval Queue — Purchase Orders ───────────────────────────────
+
+export interface PoApprovalItem {
+  poNo: string
+  vendor: string
+  value: number
+  approvalStage: string
+  poDate: string
+  daysPending: number
+  entity: string
 }
 
 // ── Alerts ────────────────────────────────────────────────────────────────────
@@ -195,7 +209,7 @@ export interface FinanceHomepageData {
   payablesDue7d: PayablesDue
   payablesInvoices14d: PayablesInvoiceRow[]
   actionQueue: ActionQueue
-  cfoApprovalQueue: BlockedWidget
+  poApprovalQueue: PoApprovalItem[]
   revenueVsTarget: BlockedWidget
   grossMargin: GrossMargin
   divisionGrossMarginSplit: BlockedWidget

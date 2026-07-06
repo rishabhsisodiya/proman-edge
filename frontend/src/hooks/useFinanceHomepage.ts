@@ -17,3 +17,17 @@ export function useFinanceHomepage() {
   )
   return { data: data ?? null, isLoading, isError: !!error, refresh: mutate }
 }
+
+export interface ReleasePaymentResult {
+  ok: boolean
+  summary?: unknown
+  error?: { code?: string; message?: string }
+}
+
+export async function releasePayment(invoiceNo: string): Promise<ReleasePaymentResult> {
+  const res = await api.post<{ success: boolean; data: ReleasePaymentResult }>(
+    '/api/v1/finance/action-queue/release',
+    { invoiceNo },
+  )
+  return res.data.data
+}

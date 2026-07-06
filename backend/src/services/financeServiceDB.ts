@@ -1,12 +1,13 @@
 import { query } from '../db'
+import { frappePost } from '../lib/frappeClient'
 import { getFinanceSparkline } from './financeSnapshotService'
 import type {
   FinanceHomepageData, CashBank, CashBankAccount, EntityAmountWithTrend,
   Revenue, PeriodStat, Period,
   OverdueReceivables, ReceivablesAgeing, AgeingBucket, TopDebtor,
   GstLiability, PayablesDue, PayablesInvoiceRow, ActionQueue,
-  PaymentToRelease, JournalEntryPending, ApReconciliationItem, FinanceAlert,
-  GrossMargin, GrossMarginStat,
+  UnpaidInvoice, JournalEntryPending, ApReconciliationItem, FinanceAlert,
+  GrossMargin, GrossMarginStat, PoApprovalItem,
 } from '../types/finance'
 
 // ── Companies ────────────────────────────────────────────────────────────────
@@ -467,19 +468,26 @@ async function getPayablesInvoices14d(companies: string[]): Promise<PayablesInvo
 
 async function getActionQueue(companies: string[]): Promise<ActionQueue> {
   const [paymentsToRelease, journalEntriesPending, apReconciliation] = await Promise.all([
+    // Tab 1 — per Shivam's v2 doc: fully-unpaid Purchase Invoices (no Payment Entry
+    // made yet), last 12 months. 'Release' calls proman_edge.api.make_payment_entry
+    // to create a draft Payment Entry (see releasePayment() below).
     Promise.all(companies.map(async company => {
-      const rows = await query<{ name: string; party: string; paid_amount: number; mode_of_payment: string; posting_date: string }>(
-        `SELECT name, party, paid_amount, mode_of_payment, posting_date
-         FROM \`tabPayment Entry\`
-         WHERE docstatus = 1 AND company = ?
-           AND mode_of_payment <> 'Cash'
-           AND clearance_date IS NULL
-         ORDER BY posting_date ASC`,
+      const rows = await query<{ invoice_no: string; vendor: string; amount: number; due_date: string; days_overdue: number }>(
+        `SELECT
+            pi.name AS invoice_no, pi.supplier AS vendor, pi.outstanding_amount AS amount,
+            pi.due_date, DATEDIFF(CURDATE(), pi.due_date) AS days_overdue
+         FROM \`tabPurchase Invoice\` pi
+         WHERE pi.posting_date >= CURDATE() - INTERVAL 12 MONTH
+           AND pi.docstatus = 1 AND pi.company = ? AND pi.is_return = 0
+           AND pi.outstanding_amount > 0
+           AND ROUND(pi.outstanding_amount, 0) >= ROUND(pi.grand_total, 0)
+         ORDER BY pi.outstanding_amount DESC
+         LIMIT 100`,
         [company],
       )
-      return rows.map((r): PaymentToRelease => ({
-        name: r.name, party: r.party, paidAmount: Number(r.paid_amount),
-        modeOfPayment: r.mode_of_payment, postingDate: r.posting_date, entity: company,
+      return rows.map((r): UnpaidInvoice => ({
+        invoiceNo: r.invoice_no, vendor: r.vendor, amount: Number(r.amount),
+        dueDate: r.due_date, daysOverdue: Number(r.days_overdue), entity: company,
       }))
     })),
 
@@ -600,6 +608,35 @@ function buildAlerts(overdue: OverdueReceivables): FinanceAlert[] {
   return alerts
 }
 
+// ── W-FIN-08 — Approval Queue, Purchase Orders ──────────────────────────────
+
+async function getPoApprovalQueue(companies: string[]): Promise<PoApprovalItem[]> {
+  const perEntity = await Promise.all(companies.map(async company => {
+    // status='Draft' is indexed and narrows the scan before the un-indexed workflow_state filter.
+    const rows = await query<{ po_no: string; vendor: string; value: number; approval_stage: string; po_date: string; days_pending: number }>(
+      `SELECT
+          po.name AS po_no, po.supplier AS vendor, po.base_grand_total AS value,
+          po.workflow_state AS approval_stage, po.transaction_date AS po_date,
+          DATEDIFF(CURDATE(), po.transaction_date) AS days_pending
+       FROM \`tabPurchase Order\` po
+       WHERE po.status = 'Draft' AND po.company = ?
+         AND po.workflow_state LIKE 'Awaiting%'
+       ORDER BY po.base_grand_total DESC`,
+      [company],
+    )
+    return rows.map((r): PoApprovalItem => ({
+      poNo: r.po_no, vendor: r.vendor, value: Number(r.value), approvalStage: r.approval_stage,
+      poDate: r.po_date, daysPending: Number(r.days_pending), entity: company,
+    }))
+  }))
+  return perEntity.flat().sort((a, b) => b.value - a.value)
+}
+
+// Write-back: creates a draft Payment Entry for an unpaid Purchase Invoice (Tab 1 'Release').
+export async function releasePayment(invoiceNo: string): Promise<{ ok: boolean; summary?: unknown; error?: { code?: string; message?: string } }> {
+  return frappePost('proman_edge.api.make_payment_entry', { invoice: invoiceNo })
+}
+
 // ── Main homepage aggregate ───────────────────────────────────────────────────
 
 export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
@@ -607,7 +644,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
 
   const [
     cashBank, revenue, overdueReceivables, receivablesAgeing,
-    gstLiability, payablesDue7d, payablesInvoices14d, actionQueue, grossMargin,
+    gstLiability, payablesDue7d, payablesInvoices14d, actionQueue, grossMargin, poApprovalQueue,
   ] = await Promise.all([
     getCashBank(companies),
     getRevenue(companies),
@@ -618,6 +655,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
     getPayablesInvoices14d(companies),
     getActionQueue(companies),
     getGrossMargin(companies),
+    getPoApprovalQueue(companies),
   ])
 
   return {
@@ -633,8 +671,8 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
     payablesInvoices14d,
     actionQueue,
     grossMargin,
+    poApprovalQueue,
     // Blocked — see Finance_Dashboard_SQL_Queries.md + Shivam message (ERP-side work required)
-    cfoApprovalQueue:         { blocked: true, reason: 'No workflow_state on Payment Entry / Journal Entry, and no requires_cfo_approval field on Purchase Order. Awaiting ERP-side setup.' },
     revenueVsTarget:          { blocked: true, reason: 'No Revenue Target doctype exists yet. Awaiting ERP-side setup.' },
     divisionGrossMarginSplit: { blocked: true, reason: 'Sales Invoice.cost_center is populated on <1% of records — no usable division split. Blended Gross Margin above is real (Decision 5 resolved); the division-wise breakdown is still blocked on cost_center coverage (Decision 3).' },
   }

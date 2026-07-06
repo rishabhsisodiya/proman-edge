@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useFinanceHomepage } from '@/hooks/useFinanceHomepage'
+import { useFinanceHomepage, releasePayment } from '@/hooks/useFinanceHomepage'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import type { SparkPoint, PeriodStat, TopDebtor, PayablesInvoiceRow, GrossMarginStat } from '@/types/finance'
@@ -208,12 +208,15 @@ export default function FinanceHeadPage() {
 
   const [rcvEntity, setRcvEntity] = useState<string | null>(null)
   const [payEntity, setPayEntity] = useState<string | null>(null)
+  const [poEntity, setPoEntity]   = useState<string | null>(null)
   const [aqEntity, setAqEntity]   = useState<string | null>(null)
   const [aqTab, setAqTab]         = useState<0 | 1 | 2>(0)
   const [revPeriod, setRevPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gstPeriod, setGstPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gmPeriod, setGmPeriod]   = useState<'M' | 'Q' | 'Y'>('M')
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null)
+  const [releasingInvoice, setReleasingInvoice] = useState<string | null>(null)
+  const [toastMsg, setToastMsg] = useState('')
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showNotif, setShowNotif]       = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
@@ -237,6 +240,24 @@ export default function FinanceHeadPage() {
 
   const today    = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
   const syncTime = data ? new Date(data.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''
+
+  async function handleRelease(invoiceNo: string) {
+    setReleasingInvoice(invoiceNo)
+    try {
+      const result = await releasePayment(invoiceNo)
+      if (result.ok) {
+        setToastMsg(`Draft Payment Entry created for ${invoiceNo}`)
+        refresh()
+      } else {
+        setToastMsg(`⚠ ${result.error?.message ?? 'Release failed'}`)
+      }
+    } catch (err) {
+      setToastMsg(`⚠ ${err instanceof Error ? err.message : 'Release failed'}`)
+    } finally {
+      setReleasingInvoice(null)
+      setTimeout(() => setToastMsg(''), 4000)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -265,6 +286,7 @@ export default function FinanceHeadPage() {
   }
   const debtorsResult = filterByLabel(data.receivablesAgeing.topDebtors, rcvEntity)
   const payInvoicesResult = filterByLabel(data.payablesInvoices14d, payEntity)
+  const poApprovalResult = filterByLabel(data.poApprovalQueue, poEntity)
   const paymentsResult = filterByLabel(data.actionQueue.paymentsToRelease, aqEntity)
   const journalsResult = filterByLabel(data.actionQueue.journalEntriesPending, aqEntity)
   const apReconResult  = filterByLabel(data.actionQueue.apReconciliation, aqEntity)
@@ -275,6 +297,13 @@ export default function FinanceHeadPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: BG, fontFamily: "Arial,'Arial Narrow',Helvetica,sans-serif", padding: 12 }}>
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 100,
+          background: NAVY, color: '#fff', fontSize: 12, padding: '10px 18px', borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+        }}>{toastMsg}</div>
+      )}
       <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 11 }}>
 
         {/* Top bar */}
@@ -464,16 +493,29 @@ export default function FinanceHeadPage() {
               })}
             </Card>
 
-            <Card title={<>Gross Margin — Division <span style={{ fontWeight: 400 }}>{gmStat.periodLabel}</span></>} icon="ti-chart-bar" right={<PeriodTabsLight period={gmPeriod} onChange={setGmPeriod} />}>
+            <Card title={<>Gross Margin — by Entity <span style={{ fontWeight: 400 }}>{gmStat.periodLabel}</span></>} icon="ti-chart-bar" right={<PeriodTabsLight period={gmPeriod} onChange={setGmPeriod} />}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingBottom: 14, marginBottom: 4, borderBottom: `1px solid ${BORDER}` }}>
                 <GaugeRing pct={gmStat.gmPct} target={gmStat.targetPct} subLabel="Blended GM" />
                 {gmStat.gmPct === null && <div style={{ fontSize: 9.5, color: INK3, fontStyle: 'italic' }}>No income posted in this period</div>}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: INK2, marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: INK2, marginBottom: 10 }}>
                 <span>Direct Income: <strong style={{ color: INK }}>{fmtMoney(gmStat.income)}</strong></span>
                 <span>Direct Expense: <strong style={{ color: INK }}>{fmtMoney(gmStat.expense)}</strong></span>
               </div>
-              <BlockedState reason={data.divisionGrossMarginSplit.reason} />
+              {gmStat.byEntity.map(e => {
+                const color = e.gmPct === null ? INK3 : e.gmPct >= gmStat.targetPct ? GREEN : e.gmPct >= gmStat.targetPct - 5 ? AMBER : RED
+                const barWidth = e.gmPct === null ? 0 : Math.min(100, e.gmPct * 2.5)
+                return (
+                  <div key={e.entity} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: INK, width: 96, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.entity}</span>
+                    <div style={{ flex: 1, height: 12, background: BG, borderRadius: 99, overflow: 'hidden' }}>
+                      <div style={{ width: `${barWidth}%`, height: 12, borderRadius: 99, background: color }} />
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 700, width: 34, textAlign: 'right', flexShrink: 0, fontFamily: 'monospace', color }}>{e.gmPct === null ? '—' : `${e.gmPct}%`}</span>
+                  </div>
+                )
+              })}
+              <div style={{ fontSize: 9, color: INK3, fontStyle: 'italic', marginTop: 4 }}>Only entities with a reachable database are shown — currently {data.entities.length} of {ENTITY_LABELS.length}.</div>
             </Card>
           </div>
 
@@ -508,8 +550,27 @@ export default function FinanceHeadPage() {
           </div>
 
           <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Card title="CFO Approval Queue" icon="ti-checklist">
-              <BlockedState reason={data.cfoApprovalQueue.reason} />
+            <Card title="Approval Queue — Purchase Orders" icon="ti-checklist" right={
+              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 9px', borderRadius: 99, background: RED_BG, color: RED }}>
+                {poApprovalResult.rows.length} pending
+              </span>
+            }>
+              {poApprovalResult.unavailable
+                ? <NoDataForEntity label={poEntity!} />
+                : poApprovalResult.rows.length === 0
+                  ? <div style={{ fontSize: 10.5, color: INK2, textAlign: 'center', padding: '14px 4px' }}>No POs pending approval.</div>
+                  : poApprovalResult.rows.slice(0, 10).map(p => (
+                    <div key={p.poNo} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: `1px solid ${BORDER}` }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: NAVY }}>{p.poNo} <span style={{ fontWeight: 400, color: INK2 }}>· {p.vendor}</span></div>
+                        <div style={{ fontSize: 9, color: INK3 }}>{p.approvalStage}</div>
+                      </div>
+                      <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: INK, flexShrink: 0 }}>{fmtMoney(p.value)}</span>
+                      <span style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: AMBER_BG, color: AMBER, flexShrink: 0, whiteSpace: 'nowrap' }}>{p.daysPending}d</span>
+                    </div>
+                  ))
+              }
+              <EntityFilterBar active={poEntity} onSelect={setPoEntity} />
             </Card>
 
             <Card title="Revenue vs Budget" icon="ti-target">
@@ -568,10 +629,22 @@ export default function FinanceHeadPage() {
                   ? <div style={{ fontSize: 10.5, color: INK2, textAlign: 'center', padding: '14px 4px' }}>No items in this view.</div>
                   : <>
                       {aqTab === 0 && paymentsResult.rows.map(r => (
-                        <div key={r.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ color: NAVY, fontWeight: 700 }}>{r.name}</span>
-                          <span style={{ color: INK }}>{r.party}</span>
-                          <span style={{ fontFamily: 'monospace' }}>{fmtMoney(r.paidAmount)}</span>
+                        <div key={r.invoiceNo} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
+                          <span style={{ color: NAVY, fontWeight: 700, flexShrink: 0 }}>{r.invoiceNo}</span>
+                          <span style={{ color: INK, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.vendor}</span>
+                          <span style={{ fontSize: 9.5, color: INK2, flexShrink: 0 }}>{fmtDate(r.dueDate)}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: RED_BG, color: RED, flexShrink: 0 }}>{r.daysOverdue}d overdue</span>
+                          <span style={{ fontFamily: 'monospace', flexShrink: 0 }}>{fmtMoney(r.amount)}</span>
+                          <button
+                            disabled={releasingInvoice === r.invoiceNo}
+                            onClick={() => handleRelease(r.invoiceNo)}
+                            style={{
+                              fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
+                              border: `1px solid ${GREEN}`, color: GREEN, background: 'none', cursor: 'pointer', flexShrink: 0,
+                              opacity: releasingInvoice === r.invoiceNo ? 0.5 : 1,
+                            }}>
+                            {releasingInvoice === r.invoiceNo ? '...' : 'Release'}
+                          </button>
                         </div>
                       ))}
                       {aqTab === 1 && journalsResult.rows.map(r => (
