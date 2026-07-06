@@ -116,6 +116,14 @@ function grnApprovalTone(state: string): 'd' | 'w' | 'n' {
   return 'n'
 }
 
+// Full approval-state text is long enough to crowd the Action column — show a
+// short label in the pill, full text still available via the title tooltip.
+function grnApprovalShortLabel(state: string): string {
+  if (state === 'Pending for Approval') return 'Pending'
+  if (state === 'Sent For Approval') return 'Sent'
+  return state
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function StoresHeadPage() {
@@ -473,7 +481,7 @@ export default function StoresHeadPage() {
                 ? <EmptyState>No pending GRNs.</EmptyState>
                 : <>
                     <Table
-                      widths={['19%', '21%', '25%', '18%', '17%']}
+                      widths={['18%', '19%', '20%', '20%', '23%']}
                       head={['GRN ID', 'Vendor', 'Item', 'Status', 'Action']}
                       rows={data.pendingGrnList.slice(0, 8).map(r => (
                         <>
@@ -483,10 +491,12 @@ export default function StoresHeadPage() {
                           </td>
                           <td title={r.vendor}>{r.vendor}</td>
                           <td title={r.firstItem}>{r.firstItem}{r.itemCount > 1 ? ' …' : ''}</td>
-                          <td style={{ overflow: 'visible', paddingRight: 12 }}>
-                            <Pill tone={grnApprovalTone(r.approvalState)}>{r.approvalState}</Pill>
+                          <td style={{ overflow: 'visible', paddingRight: 16 }}>
+                            <Pill tone={grnApprovalTone(r.approvalState)}>
+                              <span title={r.approvalState}>{grnApprovalShortLabel(r.approvalState)}</span>
+                            </Pill>
                           </td>
-                          <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>
+                          <td style={{ overflow: 'visible', paddingLeft: 12, paddingRight: 14 }}>
                             <button
                               disabled={busyAction === `grn:${r.grnNo}`}
                               onClick={() => handleSubmitGrn(r.grnNo)}
@@ -702,7 +712,8 @@ export default function StoresHeadPage() {
         {/* Zone 6 — Warehouse stock value | Quick actions */}
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1.4 1 420px' }}>
-            <Card title="Warehouse stock value" icon="ti-building-warehouse">
+            <Card title="Warehouse stock value" icon="ti-building-warehouse"
+              right={<a href={erpUrl('query-report/Stock Balance')} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, fontWeight: 700, color: NAVY, textDecoration: 'none' }}>View all →</a>}>
               {data.warehouseStockValue.slice(0, 10).map(w => (
                 <div key={w.warehouse} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: `1px solid ${BORDER}` }}>
                   <span style={{ fontSize: 12, color: NAVY }}>{w.warehouse} <span style={{ color: INK3 }}>· {w.items}</span></span>
@@ -713,7 +724,6 @@ export default function StoresHeadPage() {
                 <i className="ti ti-building-warehouse" style={{ color: ORANGE }} />
                 Total stock value <strong>{fmtMoney(data.warehouseStockValue.reduce((s, w) => s + w.stockValue, 0))}</strong> across {data.warehouseStockValue.length} warehouses
               </div>
-              <ViewAllButton href={erpUrl('query-report/Stock Balance')} />
             </Card>
           </div>
 
