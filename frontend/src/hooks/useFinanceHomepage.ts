@@ -18,16 +18,42 @@ export function useFinanceHomepage() {
   return { data: data ?? null, isLoading, isError: !!error, refresh: mutate }
 }
 
-export interface ReleasePaymentResult {
+export interface FinanceActionResult {
   ok: boolean
-  summary?: unknown
+  summary?: {
+    purchase_invoice?: string
+    payment_entry?: string
+    paid_amount?: number
+    docstatus?: number
+    journal_entry?: string
+    name?: string
+    [k: string]: unknown
+  }
+  deep_link?: string
+  meta?: { note?: string }
   error?: { code?: string; message?: string }
 }
 
-export async function releasePayment(invoiceNo: string): Promise<ReleasePaymentResult> {
-  const res = await api.post<{ success: boolean; data: ReleasePaymentResult }>(
+export async function releasePayment(invoiceNo: string): Promise<FinanceActionResult> {
+  const res = await api.post<{ success: boolean; data: FinanceActionResult }>(
     '/api/v1/finance/action-queue/release',
     { invoiceNo },
+  )
+  return res.data.data
+}
+
+export async function approvePurchaseOrder(poNo: string): Promise<FinanceActionResult> {
+  const res = await api.post<{ success: boolean; data: FinanceActionResult }>(
+    '/api/v1/finance/po-approval/approve',
+    { poNo },
+  )
+  return res.data.data
+}
+
+export async function approveJournalEntry(journalEntry: string): Promise<FinanceActionResult> {
+  const res = await api.post<{ success: boolean; data: FinanceActionResult }>(
+    '/api/v1/finance/action-queue/approve-je',
+    { journalEntry },
   )
   return res.data.data
 }

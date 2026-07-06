@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useFinanceHomepage, releasePayment } from '@/hooks/useFinanceHomepage'
+import { useFinanceHomepage, releasePayment, approvePurchaseOrder, approveJournalEntry } from '@/hooks/useFinanceHomepage'
+import { useFinanceSettings, setGmTarget, clearGmTargetOverride } from '@/hooks/useFinanceSettings'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import type { SparkPoint, PeriodStat, TopDebtor, PayablesInvoiceRow, GrossMarginStat } from '@/types/finance'
@@ -142,6 +143,46 @@ function DebtorBar({ debtor }: { debtor: TopDebtor }) {
 
 const URGENCY_COLOR = (daysAway: number) => daysAway <= 1 ? { bg: RED_BG, fg: RED } : daysAway <= 5 ? { bg: AMBER_BG, fg: AMBER } : { bg: BG, fg: NAVY }
 
+const AQ_ERP_PATH = ['/app/purchase-invoice', '/app/journal-entry', '/app/payment-entry'] as const
+
+function aqErpLinkFor(base: string, tab: 0 | 1 | 2, entityLabel: string | null): string {
+  const path = AQ_ERP_PATH[tab]
+  const match = entityLabel ? ENTITY_MATCH[entityLabel] : undefined
+  const params = new URLSearchParams()
+  if (match) params.set('company', match)
+
+  if (tab === 0) {
+    // Mirrors the dashboard's own filter as closely as Frappe's list-view URL filters allow:
+    // docstatus, is_return, outstanding_amount > 0, posting_date within the last 12 months.
+    // NOT reproducible here: "fully unpaid" (outstanding_amount >= grand_total) is a field-to-field
+    // comparison Frappe list filters can't express — this link is a superset (includes partially-paid too).
+    const twelveMonthsAgo = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10)
+    params.set('docstatus', '1')
+    params.set('is_return', '0')
+    params.set('outstanding_amount', JSON.stringify(['>', '0']))
+    params.set('posting_date', JSON.stringify(['>=', twelveMonthsAgo]))
+  } else if (tab === 1) {
+    // Mirrors: docstatus=0 (draft), posting_date < today, total_debit > 1L
+    params.set('docstatus', '0')
+    params.set('posting_date', JSON.stringify(['<', new Date().toISOString().slice(0, 10)]))
+    params.set('total_debit', JSON.stringify(['>', '100000']))
+  } else {
+    // AP Reconciliation combines 3 doctypes (Payment Entry / Purchase Order / Purchase Invoice)
+    // via a UNION — a single list-view link can only represent ONE of them. This shows the
+    // Payment Entry slice (docstatus=1, payment_type=Pay, unallocated>0, >30 days old), which is
+    // the largest of the three sources — Purchase Order / Purchase Invoice rows aren't reachable
+    // from this link at all.
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+    params.set('docstatus', '1')
+    params.set('payment_type', 'Pay')
+    params.set('unallocated_amount', JSON.stringify(['>', '0']))
+    params.set('posting_date', JSON.stringify(['<', thirtyDaysAgo]))
+  }
+
+  const qs = params.toString()
+  return `${base}${path}${qs ? `?${qs}` : ''}`
+}
+
 function groupInvoicesByDate(rows: PayablesInvoiceRow[]) {
   const byDate = new Map<string, PayablesInvoiceRow[]>()
   for (const r of rows) {
@@ -174,6 +215,130 @@ function PeriodTabsLight({ period, onChange }: { period: 'M' | 'Q' | 'Y'; onChan
         }}>{p}</button>
       ))}
     </span>
+  )
+}
+
+function AqThead({ cols }: { cols: string[] }) {
+  return (
+    <thead>
+      <tr>
+        {cols.map(c => (
+          <th key={c} style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: INK2,
+            textAlign: 'left', padding: '5px 8px 7px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap',
+          }}>{c}</th>
+        ))}
+      </tr>
+    </thead>
+  )
+}
+
+function AqTd({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <td style={{ padding: '7px 8px', borderBottom: `1px solid ${BORDER}`, color: INK, verticalAlign: 'middle', ...style }}>
+      {children}
+    </td>
+  )
+}
+
+function Pill({ bg, fg, children }: { bg: string; fg: string; children: React.ReactNode }) {
+  return (
+    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: bg, color: fg, whiteSpace: 'nowrap' }}>
+      {children}
+    </span>
+  )
+}
+
+function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { settings, isLoading, refresh } = useFinanceSettings()
+  const [defaultVal, setDefaultVal] = useState('')
+  const [entityVal, setEntityVal] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!settings) return
+    setDefaultVal(String(settings.grossMarginTargetPct.default))
+  }, [settings])
+
+  const pisplName = ENTITY_MATCH['PISPL']
+  const pisplOverride = settings?.grossMarginTargetPct.byEntity[pisplName ?? '']
+
+  useEffect(() => {
+    setEntityVal(pisplOverride !== undefined ? String(pisplOverride) : '')
+  }, [pisplOverride])
+
+  async function saveDefault() {
+    const n = Number(defaultVal)
+    if (Number.isNaN(n) || n < 0 || n > 100) { setError('Enter a number between 0 and 100'); return }
+    setError(''); setSaving(true)
+    try { await setGmTarget(null, n); await refresh(); onSaved() } finally { setSaving(false) }
+  }
+
+  async function saveEntity() {
+    if (!pisplName) return
+    const n = Number(entityVal)
+    if (Number.isNaN(n) || n < 0 || n > 100) { setError('Enter a number between 0 and 100'); return }
+    setError(''); setSaving(true)
+    try { await setGmTarget(pisplName, n); await refresh(); onSaved() } finally { setSaving(false) }
+  }
+
+  async function resetEntity() {
+    if (!pisplName) return
+    setSaving(true)
+    try { await clearGmTargetOverride(pisplName); await refresh(); onSaved() } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', right: 0, top: 34, width: 320, background: '#fff',
+      border: `1px solid ${BORDER}`, borderRadius: 10,
+      boxShadow: '0 12px 30px rgba(15,34,64,.18)', padding: 14, zIndex: 50,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <h4 style={{ fontSize: 11, fontWeight: 700, color: INK, margin: 0 }}>Gross Margin Target</h4>
+        <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: INK3, fontSize: 14 }}>✕</button>
+      </div>
+      {isLoading || !settings
+        ? <div style={{ fontSize: 11, color: INK2 }}>Loading…</div>
+        : <>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: INK2, display: 'block', marginBottom: 5 }}>Default (all entities)</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input type="number" min={0} max={100} value={defaultVal} onChange={e => setDefaultVal(e.target.value)}
+                  style={{ flex: 1, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '5px 8px', fontSize: 11.5, width: 0 }} />
+                <button onClick={saveDefault} disabled={saving} style={{
+                  fontSize: 10, fontWeight: 700, padding: '5px 12px', borderRadius: 7, border: 'none',
+                  background: NAVY, color: '#fff', cursor: 'pointer', opacity: saving ? 0.6 : 1,
+                }}>Save</button>
+              </div>
+            </div>
+            {pisplName && (
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: INK2, display: 'block', marginBottom: 5 }}>PISPL override</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input type="number" min={0} max={100} placeholder={String(settings.grossMarginTargetPct.default)} value={entityVal} onChange={e => setEntityVal(e.target.value)}
+                    style={{ flex: 1, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '5px 8px', fontSize: 11.5, width: 0 }} />
+                  <button onClick={saveEntity} disabled={saving} style={{
+                    fontSize: 10, fontWeight: 700, padding: '5px 12px', borderRadius: 7, border: 'none',
+                    background: NAVY, color: '#fff', cursor: 'pointer', opacity: saving ? 0.6 : 1,
+                  }}>Save</button>
+                  {pisplOverride !== undefined && (
+                    <button onClick={resetEntity} disabled={saving} title="Reset to default" style={{
+                      fontSize: 10, fontWeight: 700, padding: '5px 9px', borderRadius: 7, border: `1px solid ${BORDER}`,
+                      background: '#fff', color: INK2, cursor: 'pointer',
+                    }}>↺</button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 9.5, color: INK3, marginTop: 10, fontStyle: 'italic' }}>
+              ACE, PROMAX, QMS Pro, Dynatek overrides become available once those sites are DB-connected.
+            </div>
+            {error && <div style={{ fontSize: 10, color: RED, marginTop: 6 }}>{error}</div>}
+          </>
+      }
+    </div>
   )
 }
 
@@ -216,11 +381,15 @@ export default function FinanceHeadPage() {
   const [gmPeriod, setGmPeriod]   = useState<'M' | 'Q' | 'Y'>('M')
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null)
   const [releasingInvoice, setReleasingInvoice] = useState<string | null>(null)
-  const [toastMsg, setToastMsg] = useState('')
+  const [approvingPo, setApprovingPo] = useState<string | null>(null)
+  const [approvingJe, setApprovingJe] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ text: string; link?: string } | null>(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showNotif, setShowNotif]       = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
   const notifRef    = useRef<HTMLDivElement>(null)
+  const settingsRef = useRef<HTMLDivElement>(null)
 
   const switcherOptions = [
     { label: 'Sales Head',         slug: 'sales-head'         },
@@ -233,6 +402,7 @@ export default function FinanceHeadPage() {
     const h = (e: MouseEvent) => {
       if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) setShowSwitcher(false)
       if (notifRef.current    && !notifRef.current.contains(e.target as Node))    setShowNotif(false)
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setShowSettings(false)
     }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
@@ -245,17 +415,53 @@ export default function FinanceHeadPage() {
     setReleasingInvoice(invoiceNo)
     try {
       const result = await releasePayment(invoiceNo)
-      if (result.ok) {
-        setToastMsg(`Draft Payment Entry created for ${invoiceNo}`)
+      if (result.ok && result.summary) {
+        setToast({ text: `Draft ${result.summary.payment_entry} created for ${invoiceNo} — pick the bank account and submit in ERPNext.`, link: result.deep_link })
         refresh()
       } else {
-        setToastMsg(`⚠ ${result.error?.message ?? 'Release failed'}`)
+        setToast({ text: `⚠ ${result.error?.message ?? 'Release failed'}` })
       }
     } catch (err) {
-      setToastMsg(`⚠ ${err instanceof Error ? err.message : 'Release failed'}`)
+      setToast({ text: `⚠ ${err instanceof Error ? err.message : 'Release failed'}` })
     } finally {
       setReleasingInvoice(null)
-      setTimeout(() => setToastMsg(''), 4000)
+      setTimeout(() => setToast(null), 6000)
+    }
+  }
+
+  async function handleApprovePo(poNo: string) {
+    setApprovingPo(poNo)
+    try {
+      const result = await approvePurchaseOrder(poNo)
+      if (result.ok) {
+        setToast({ text: `${poNo} advanced${result.summary?.name ? ` — now ${result.summary.name}` : ''}.`, link: result.deep_link })
+        refresh()
+      } else {
+        setToast({ text: `⚠ ${result.error?.message ?? 'Approve failed'}` })
+      }
+    } catch (err) {
+      setToast({ text: `⚠ ${err instanceof Error ? err.message : 'Approve failed'}` })
+    } finally {
+      setApprovingPo(null)
+      setTimeout(() => setToast(null), 6000)
+    }
+  }
+
+  async function handleApproveJe(jeNo: string) {
+    setApprovingJe(jeNo)
+    try {
+      const result = await approveJournalEntry(jeNo)
+      if (result.ok) {
+        setToast({ text: `${jeNo} submitted.`, link: result.deep_link })
+        refresh()
+      } else {
+        setToast({ text: `⚠ ${result.error?.message ?? 'Approve failed'}` })
+      }
+    } catch (err) {
+      setToast({ text: `⚠ ${err instanceof Error ? err.message : 'Approve failed'}` })
+    } finally {
+      setApprovingJe(null)
+      setTimeout(() => setToast(null), 6000)
     }
   }
 
@@ -297,12 +503,19 @@ export default function FinanceHeadPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: BG, fontFamily: "Arial,'Arial Narrow',Helvetica,sans-serif", padding: 12 }}>
-      {toastMsg && (
+      {toast && (
         <div style={{
           position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 100,
           background: NAVY, color: '#fff', fontSize: 12, padding: '10px 18px', borderRadius: 10,
-          boxShadow: '0 8px 24px rgba(0,0,0,.25)',
-        }}>{toastMsg}</div>
+          boxShadow: '0 8px 24px rgba(0,0,0,.25)', display: 'flex', alignItems: 'center', gap: 10, maxWidth: 480,
+        }}>
+          <span>{toast.text}</span>
+          {toast.link && (
+            <a href={toast.link} target="_blank" rel="noreferrer" style={{ color: '#9AA0D8', fontWeight: 700, whiteSpace: 'nowrap', textDecoration: 'underline' }}>
+              Open ↗
+            </a>
+          )}
+        </div>
       )}
       <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 11 }}>
 
@@ -369,6 +582,20 @@ export default function FinanceHeadPage() {
               onMouseOut={e  => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}>
               <i className="ti ti-logout" style={{ fontSize: 14 }} /> <span>Logout</span>
             </button>
+
+            {/* Settings */}
+            <div style={{ position: 'relative' }} ref={settingsRef}>
+              <button onClick={() => setShowSettings(v => !v)} title="Finance settings" style={{
+                fontSize: 11, color: '#fff', background: 'rgba(255,255,255,.08)',
+                border: '1px solid rgba(255,255,255,.18)', borderRadius: 8,
+                padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                <i className="ti ti-settings" style={{ fontSize: 14 }} />
+              </button>
+              {showSettings && (
+                <SettingsPanel onClose={() => setShowSettings(false)} onSaved={() => refresh()} />
+              )}
+            </div>
 
             {/* Bell / alerts */}
             <div style={{ position: 'relative' }} ref={notifRef}>
@@ -530,20 +757,9 @@ export default function FinanceHeadPage() {
               </div>
               {bucketData.unavailable
                 ? <NoDataForEntity label={rcvEntity!} />
-                : <>
-                    {bucketData.buckets.filter(b => b.bucket !== 'TOTAL').map(b => (
-                      <div key={b.bucket} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}>
-                        <span style={{ color: BUCKET_COLOR[b.bucket] ?? INK2, fontWeight: 700 }}>{b.bucket}</span>
-                        <span style={{ fontFamily: 'monospace' }}>{fmtMoney(b.amount)}</span>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, paddingTop: 6, borderTop: `1px solid ${BORDER}` }}>
-                      <span>Net total</span>
-                      <span>{fmtMoney(bucketData.buckets.find(b => b.bucket === 'TOTAL')?.amount ?? 0)}</span>
-                    </div>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: INK2, marginTop: 4 }}>Top debtors</div>
-                    {debtorsResult.rows.slice(0, 8).map(d => <DebtorBar key={d.customer + d.entity} debtor={d} />)}
-                  </>
+                : debtorsResult.rows.filter(d => d.buckets.length > 0).length === 0
+                  ? <div style={{ fontSize: 10.5, color: INK2, textAlign: 'center', padding: '14px 4px' }}>No open receivables.</div>
+                  : debtorsResult.rows.filter(d => d.buckets.length > 0).slice(0, 10).map(d => <DebtorBar key={d.customer + d.entity} debtor={d} />)
               }
               <EntityFilterBar active={rcvEntity} onSelect={setRcvEntity} />
             </Card>
@@ -567,6 +783,16 @@ export default function FinanceHeadPage() {
                       </div>
                       <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: INK, flexShrink: 0 }}>{fmtMoney(p.value)}</span>
                       <span style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: AMBER_BG, color: AMBER, flexShrink: 0, whiteSpace: 'nowrap' }}>{p.daysPending}d</span>
+                      <button
+                        disabled={approvingPo === p.poNo}
+                        onClick={() => handleApprovePo(p.poNo)}
+                        style={{
+                          fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 99, flexShrink: 0,
+                          border: `1px solid ${GREEN}`, color: GREEN, background: 'none', cursor: 'pointer',
+                          opacity: approvingPo === p.poNo ? 0.5 : 1,
+                        }}>
+                        {approvingPo === p.poNo ? '...' : 'Approve'}
+                      </button>
                     </div>
                   ))
               }
@@ -607,14 +833,21 @@ export default function FinanceHeadPage() {
 
           <div style={{ flex: '1 1 420px' }}>
             <Card title="Action Queue" icon="ti-clock" right={
-              <div style={{ display: 'flex', gap: 2 }}>
+              <a href={aqErpLinkFor(data.erpBaseUrl, aqTab, aqEntity)} target="_blank" rel="noreferrer" style={{
+                fontSize: 10, fontWeight: 700, color: NAVY, border: `1px solid ${BORDER}`, background: '#fff',
+                padding: '4px 10px', borderRadius: 99, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+                <i className="ti ti-external-link" style={{ fontSize: 13 }} />View all
+              </a>
+            }>
+              <div style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${BORDER}`, marginBottom: 4 }}>
                 {(['Payments to Release', 'Journal Entries', 'AP Reconciliation'] as const).map((label, i) => {
-                  const count = i === 0 ? data.actionQueue.paymentsToRelease.length : i === 1 ? data.actionQueue.journalEntriesPending.length : data.actionQueue.apReconciliation.length
+                  const count = i === 0 ? data.actionQueue.paymentsToReleaseTotal : i === 1 ? data.actionQueue.journalEntriesPending.length : data.actionQueue.apReconciliation.length
                   return (
                     <button key={label} onClick={() => setAqTab(i as 0 | 1 | 2)} style={{
                       fontSize: 10, fontWeight: 700, padding: '5px 9px', border: 'none', background: 'none',
                       color: aqTab === i ? NAVY : INK2, borderBottom: `2px solid ${aqTab === i ? ORANGE : 'transparent'}`, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', gap: 5,
+                      display: 'flex', alignItems: 'center', gap: 5, marginBottom: -1,
                     }}>
                       {label}
                       <span style={{ fontSize: 8.5, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: count > 0 ? RED_BG : BG, color: count > 0 ? RED : INK3 }}>{count}</span>
@@ -622,46 +855,80 @@ export default function FinanceHeadPage() {
                   )
                 })}
               </div>
-            }>
               {aqResult.unavailable
                 ? <NoDataForEntity label={aqEntity!} />
                 : aqResult.rows.length === 0
                   ? <div style={{ fontSize: 10.5, color: INK2, textAlign: 'center', padding: '14px 4px' }}>No items in this view.</div>
-                  : <>
-                      {aqTab === 0 && paymentsResult.rows.map(r => (
-                        <div key={r.invoiceNo} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ color: NAVY, fontWeight: 700, flexShrink: 0 }}>{r.invoiceNo}</span>
-                          <span style={{ color: INK, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.vendor}</span>
-                          <span style={{ fontSize: 9.5, color: INK2, flexShrink: 0 }}>{fmtDate(r.dueDate)}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: RED_BG, color: RED, flexShrink: 0 }}>{r.daysOverdue}d overdue</span>
-                          <span style={{ fontFamily: 'monospace', flexShrink: 0 }}>{fmtMoney(r.amount)}</span>
-                          <button
-                            disabled={releasingInvoice === r.invoiceNo}
-                            onClick={() => handleRelease(r.invoiceNo)}
-                            style={{
-                              fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
-                              border: `1px solid ${GREEN}`, color: GREEN, background: 'none', cursor: 'pointer', flexShrink: 0,
-                              opacity: releasingInvoice === r.invoiceNo ? 0.5 : 1,
-                            }}>
-                            {releasingInvoice === r.invoiceNo ? '...' : 'Release'}
-                          </button>
-                        </div>
-                      ))}
-                      {aqTab === 1 && journalsResult.rows.map(r => (
-                        <div key={r.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ color: NAVY, fontWeight: 700 }}>{r.name}</span>
-                          <span style={{ color: INK }}>{r.daysPending}d pending</span>
-                          <span style={{ fontFamily: 'monospace' }}>{fmtMoney(r.totalDebit)}</span>
-                        </div>
-                      ))}
-                      {aqTab === 2 && apReconResult.rows.slice(0, 30).map((r, i) => (
-                        <div key={r.item + i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, padding: '6px 0', borderBottom: `1px solid ${BORDER}` }}>
-                          <span style={{ color: INK }}>{r.party}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: RED_BG, color: RED }}>{r.status}</span>
-                          <span style={{ fontFamily: 'monospace' }}>{fmtMoney(r.amount)}</span>
-                        </div>
-                      ))}
-                    </>
+                  : <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
+                        {aqTab === 0 && <>
+                          <AqThead cols={['Invoice', 'Vendor', 'Amount', 'Due Date', 'Overdue', 'Action']} />
+                          <tbody>
+                            {paymentsResult.rows.slice(0, 10).map(r => (
+                              <tr key={r.invoiceNo}>
+                                <AqTd style={{ color: NAVY, fontWeight: 700 }}>{r.invoiceNo}</AqTd>
+                                <AqTd>{r.vendor}</AqTd>
+                                <AqTd style={{ fontFamily: 'monospace' }}>{fmtMoney(r.amount)}</AqTd>
+                                <AqTd>{fmtDate(r.dueDate)}</AqTd>
+                                <AqTd><Pill bg={RED_BG} fg={RED}>{r.daysOverdue}d</Pill></AqTd>
+                                <AqTd>
+                                  <button
+                                    disabled={releasingInvoice === r.invoiceNo}
+                                    onClick={() => handleRelease(r.invoiceNo)}
+                                    style={{
+                                      fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
+                                      border: `1px solid ${GREEN}`, color: GREEN, background: 'none', cursor: 'pointer',
+                                      opacity: releasingInvoice === r.invoiceNo ? 0.5 : 1,
+                                    }}>
+                                    {releasingInvoice === r.invoiceNo ? '...' : 'Release'}
+                                  </button>
+                                </AqTd>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </>}
+                        {aqTab === 1 && <>
+                          <AqThead cols={['JE No.', 'Narration', 'Amount', 'Type', 'Days Pending', 'Action']} />
+                          <tbody>
+                            {journalsResult.rows.slice(0, 10).map(r => (
+                              <tr key={r.name}>
+                                <AqTd style={{ color: NAVY, fontWeight: 700 }}>{r.name}</AqTd>
+                                <AqTd>{r.userRemark}</AqTd>
+                                <AqTd style={{ fontFamily: 'monospace' }}>{fmtMoney(r.totalDebit)}</AqTd>
+                                <AqTd><Pill bg={BG} fg={NAVY}>{r.voucherType}</Pill></AqTd>
+                                <AqTd>{r.daysPending}d</AqTd>
+                                <AqTd>
+                                  <button
+                                    disabled={approvingJe === r.name}
+                                    onClick={() => handleApproveJe(r.name)}
+                                    style={{
+                                      fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
+                                      border: `1px solid ${GREEN}`, color: GREEN, background: 'none', cursor: 'pointer',
+                                      opacity: approvingJe === r.name ? 0.5 : 1,
+                                    }}>
+                                    {approvingJe === r.name ? '...' : 'Approve'}
+                                  </button>
+                                </AqTd>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </>}
+                        {aqTab === 2 && <>
+                          <AqThead cols={['Party', 'Type', 'Amount', 'Days Outstanding', 'Status']} />
+                          <tbody>
+                            {apReconResult.rows.slice(0, 10).map((r, i) => (
+                              <tr key={r.item + i}>
+                                <AqTd style={{ fontWeight: 700 }}>{r.party}</AqTd>
+                                <AqTd><Pill bg={BG} fg={NAVY}>{r.source}</Pill></AqTd>
+                                <AqTd style={{ fontFamily: 'monospace' }}>{fmtMoney(r.amount)}</AqTd>
+                                <AqTd><Pill bg={r.daysOut > 45 ? RED_BG : AMBER_BG} fg={r.daysOut > 45 ? RED : AMBER}>{r.daysOut}d</Pill></AqTd>
+                                <AqTd style={{ color: INK2 }}>{r.status}</AqTd>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </>}
+                      </table>
+                    </div>
               }
               <EntityFilterBar active={aqEntity} onSelect={setAqEntity} />
             </Card>

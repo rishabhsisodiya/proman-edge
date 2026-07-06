@@ -80,6 +80,7 @@ export interface GrossMarginEntity {
   income: number
   expense: number
   gmPct: number | null
+  targetPct: number
 }
 
 export interface GrossMarginStat {
@@ -145,6 +146,7 @@ export interface ApReconciliationItem {
 
 export interface ActionQueue {
   paymentsToRelease: UnpaidInvoice[]
+  paymentsToReleaseTotal: number
   journalEntriesPending: JournalEntryPending[]
   apReconciliation: ApReconciliationItem[]
 }
@@ -172,6 +174,7 @@ export interface BlockedWidget {
 
 export interface FinanceHomepageData {
   syncedAt: string
+  erpBaseUrl: string
   entities: string[]
   alerts: FinanceAlert[]
   cashBank: CashBank

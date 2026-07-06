@@ -1,13 +1,14 @@
 import { query } from '../db'
 import { frappePost } from '../lib/frappeClient'
 import { getFinanceSparkline } from './financeSnapshotService'
+import { getGmTargetPct } from './financeSettingsService'
 import type {
   FinanceHomepageData, CashBank, CashBankAccount, EntityAmountWithTrend,
   Revenue, PeriodStat, Period,
   OverdueReceivables, ReceivablesAgeing, AgeingBucket, TopDebtor,
   GstLiability, PayablesDue, PayablesInvoiceRow, ActionQueue,
   UnpaidInvoice, JournalEntryPending, ApReconciliationItem, FinanceAlert,
-  GrossMargin, GrossMarginStat, PoApprovalItem,
+  GrossMargin, GrossMarginStat, PoApprovalItem, FinanceActionResult,
 } from '../types/finance'
 
 // ── Companies ────────────────────────────────────────────────────────────────
@@ -351,10 +352,9 @@ async function getGstLiability(companies: string[]): Promise<GstLiability> {
 }
 
 // ── W-FIN-12 — Gross Margin, blended (Decision 5: GM = Direct Income − Direct
-// Expenses, fixed 24% target, per Shivam). Division split is still blocked —
-// see divisionGrossMarginSplit below (Decision 3: cost_center coverage).
-
-const GM_TARGET_PCT = 24
+// Expenses; target defaults to 24% per Shivam but is configurable per entity via
+// financeSettingsService — see GET/PUT /api/v1/finance/settings/gross-margin-target).
+// Division split is still blocked — see divisionGrossMarginSplit below (Decision 3).
 
 async function getGrossMarginForCompany(company: string, start: string, end: string): Promise<{ income: number; expense: number }> {
   const rows = await query<{ income: number | null; expense: number | null }>(
@@ -388,13 +388,19 @@ async function getGrossMarginStat(companies: string[], period: Period): Promise<
   const { start, end, label } = periodRange(period)
   const byEntity = await Promise.all(companies.map(async company => {
     const { income, expense } = await getGrossMarginForCompany(company, start, end)
-    return { entity: company, income, expense, gmPct: gmPct(income, expense) }
+    return { entity: company, income, expense, gmPct: gmPct(income, expense), targetPct: getGmTargetPct(company) }
   }))
   const income = byEntity.reduce((s, e) => s + e.income, 0)
   const expense = byEntity.reduce((s, e) => s + e.expense, 0)
+  // Income-weighted blend of each entity's own target, so the group figure stays meaningful
+  // even if entities have different targets configured. Falls back to a plain average when
+  // there's no income yet to weight by (e.g. current month before any invoices post).
+  const weightedTarget = income > 0
+    ? byEntity.reduce((s, e) => s + e.targetPct * e.income, 0) / income
+    : byEntity.reduce((s, e) => s + e.targetPct, 0) / (byEntity.length || 1)
   return {
     income, expense, grossMargin: income - expense,
-    gmPct: gmPct(income, expense), targetPct: GM_TARGET_PCT,
+    gmPct: gmPct(income, expense), targetPct: Math.round(weightedTarget * 10) / 10,
     byEntity, periodLabel: label,
   }
 }
@@ -467,10 +473,12 @@ async function getPayablesInvoices14d(companies: string[]): Promise<PayablesInvo
 // ── W-FIN-11 — Action queue (3 tabs) ─────────────────────────────────────────
 
 async function getActionQueue(companies: string[]): Promise<ActionQueue> {
-  const [paymentsToRelease, journalEntriesPending, apReconciliation] = await Promise.all([
+  const [paymentsToRelease, paymentsToReleaseTotal, journalEntriesPending, apReconciliation] = await Promise.all([
     // Tab 1 — per Shivam's v2 doc: fully-unpaid Purchase Invoices (no Payment Entry
-    // made yet), last 12 months. 'Release' calls proman_edge.api.make_payment_entry
+    // made yet), last 12 months. 'Release' calls proman_edge.api.finance.make_payment_entry
     // to create a draft Payment Entry (see releasePayment() below).
+    // Capped at 100/company for display — the true count (for the tab badge) is
+    // fetched separately below since it's normally far higher than what's rendered.
     Promise.all(companies.map(async company => {
       const rows = await query<{ invoice_no: string; vendor: string; amount: number; due_date: string; days_overdue: number }>(
         `SELECT
@@ -489,6 +497,19 @@ async function getActionQueue(companies: string[]): Promise<ActionQueue> {
         invoiceNo: r.invoice_no, vendor: r.vendor, amount: Number(r.amount),
         dueDate: r.due_date, daysOverdue: Number(r.days_overdue), entity: company,
       }))
+    })),
+
+    Promise.all(companies.map(async company => {
+      const rows = await query<{ cnt: number }>(
+        `SELECT COUNT(*) AS cnt
+         FROM \`tabPurchase Invoice\` pi
+         WHERE pi.posting_date >= CURDATE() - INTERVAL 12 MONTH
+           AND pi.docstatus = 1 AND pi.company = ? AND pi.is_return = 0
+           AND pi.outstanding_amount > 0
+           AND ROUND(pi.outstanding_amount, 0) >= ROUND(pi.grand_total, 0)`,
+        [company],
+      )
+      return Number(rows[0]?.cnt ?? 0)
     })),
 
     Promise.all(companies.map(async company => {
@@ -582,6 +603,7 @@ async function getActionQueue(companies: string[]): Promise<ActionQueue> {
 
   return {
     paymentsToRelease: paymentsToRelease.flat(),
+    paymentsToReleaseTotal: paymentsToReleaseTotal.reduce((s, n) => s + n, 0),
     journalEntriesPending: journalEntriesPending.flat(),
     apReconciliation: apReconciliation.flat(),
   }
@@ -633,8 +655,22 @@ async function getPoApprovalQueue(companies: string[]): Promise<PoApprovalItem[]
 }
 
 // Write-back: creates a draft Payment Entry for an unpaid Purchase Invoice (Tab 1 'Release').
-export async function releasePayment(invoiceNo: string): Promise<{ ok: boolean; summary?: unknown; error?: { code?: string; message?: string } }> {
-  return frappePost('proman_edge.api.make_payment_entry', { invoice: invoiceNo })
+// Method path confirmed by Shivam (2026-07): proman_edge.api.finance.make_payment_entry
+// (not proman_edge.api.make_payment_entry, which is what the v2 doc originally said).
+export async function releasePayment(invoiceNo: string): Promise<FinanceActionResult> {
+  return frappePost('proman_edge.api.finance.make_payment_entry', { invoice: invoiceNo })
+}
+
+// Write-back: advances a Purchase Order's workflow_state (W-FIN-08 'Approve'). Reused
+// from the Procurement dashboard's existing endpoint — same {ok, summary, error} envelope.
+export async function approvePurchaseOrder(poNo: string): Promise<FinanceActionResult> {
+  return frappePost('proman_edge.api.procurement.approve_purchase_order', { name: poNo })
+}
+
+// Write-back: submits a draft Journal Entry (W-FIN-11 Tab 2 'Approve' — JE has no workflow,
+// so 'approve' here just means submit the draft, docstatus 0 -> 1).
+export async function submitJournalEntry(jeNo: string): Promise<FinanceActionResult> {
+  return frappePost('proman_edge.api.finance.submit_journal_entry', { journal_entry: jeNo })
 }
 
 // ── Main homepage aggregate ───────────────────────────────────────────────────
@@ -660,6 +696,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
 
   return {
     syncedAt: new Date().toISOString(),
+    erpBaseUrl: (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, ''),
     entities: companies,
     alerts: buildAlerts(overdueReceivables),
     cashBank,

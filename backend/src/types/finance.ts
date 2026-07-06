@@ -93,6 +93,7 @@ export interface GrossMarginEntity {
   income: number
   expense: number
   gmPct: number | null
+  targetPct: number       // per-entity target — configurable, see financeSettingsService
 }
 
 export interface GrossMarginStat {
@@ -100,7 +101,7 @@ export interface GrossMarginStat {
   expense: number
   grossMargin: number
   gmPct: number | null
-  targetPct: number       // fixed 24% across all instances, per Shivam
+  targetPct: number       // income-weighted blend of each entity's own target
   byEntity: GrossMarginEntity[]
   periodLabel: string
 }
@@ -164,6 +165,7 @@ export interface ApReconciliationItem {
 
 export interface ActionQueue {
   paymentsToRelease: UnpaidInvoice[]
+  paymentsToReleaseTotal: number   // true count — paymentsToRelease is capped at 100/company for display
   journalEntriesPending: JournalEntryPending[]
   apReconciliation: ApReconciliationItem[]
 }
@@ -188,6 +190,16 @@ export interface FinanceAlert {
   reason?: string   // present when part of the alert could not be computed (e.g. statutory due dates)
 }
 
+// ── Write-back action results (Release / Approve PO / Submit JE) ────────────
+
+export interface FinanceActionResult {
+  ok: boolean
+  summary?: { purchase_invoice?: string; payment_entry?: string; paid_amount?: number; docstatus?: number; journal_entry?: string; name?: string; [k: string]: unknown }
+  deep_link?: string
+  meta?: { note?: string }
+  error?: { code?: string; message?: string }
+}
+
 // ── Blocked widgets (need ERP-side work — see Shivam message) ───────────────
 
 export interface BlockedWidget {
@@ -199,6 +211,7 @@ export interface BlockedWidget {
 
 export interface FinanceHomepageData {
   syncedAt: string
+  erpBaseUrl: string
   entities: string[]
   alerts: FinanceAlert[]
   cashBank: CashBank
