@@ -4,10 +4,10 @@ import { Children, cloneElement, isValidElement, useState, useRef, useEffect } f
 import type { ReactElement, ReactNode, CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useStoresHomepage } from '@/hooks/useStoresHomepage'
+import { useStoresHomepage, submitGrn, createMaterialRequest, createPoFromMr } from '@/hooks/useStoresHomepage'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
-import type { PickListRow } from '@/types/stores'
+import type { PickListRow, BelowReorderNoPoRow } from '@/types/stores'
 
 // ── Design tokens (shared visual language with other homepages) ─────────────
 const NAVY      = colors.navy
@@ -89,31 +89,31 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 10.5, color: INK2, textAlign: 'center', padding: '14px 4px' }}>{children}</div>
 }
 
-// Matches the template: only the fully-picked row gets an actionable button —
-// not-picked/partial rows stay as static status pills.
-function pickListStatus(row: PickListRow, issueHref: string) {
-  if (row.pickedQty <= 0) return <Pill tone="d">Not picked</Pill>
-  if (row.pickedQty < row.requiredQty) return <Pill tone="w">Partial</Pill>
-  return <a href={issueHref} target="_blank" rel="noreferrer"><button style={btnOk}>Issue</button></a>
+// v3: Pick List Pending is a plain 2-state pill — Pending (nothing picked) or
+// Partial (some picked). A fully-picked pick list moves out of Open/Draft
+// status and drops out of this query entirely, so there's no 3rd "Ready" state.
+function pickListStatus(row: PickListRow) {
+  if (row.pickedQty <= 0) return <Pill tone="w">Pending</Pill>
+  return <Pill tone="i">Partial</Pill>
+}
+
+function pickListRowTone(row: PickListRow): 'd' | 'w' | 's' | 'i' {
+  return row.pickedQty <= 0 ? 'w' : 'i'
 }
 
 // 3px colored left-edge stripe on a row's first cell, matching the template's
-// .dl/.al/.gl row treatment (danger/amber/green severity indicator).
-function rowStripe(tone: 'd' | 'w' | 's'): React.CSSProperties {
-  const color = tone === 'd' ? RED : tone === 'w' ? AMBER : GREEN
+// .dl/.al/.gl/.il row treatment (danger/amber/green/info severity indicator).
+function rowStripe(tone: 'd' | 'w' | 's' | 'i' | 'n'): React.CSSProperties {
+  const color = tone === 'd' ? RED : tone === 'w' ? AMBER : tone === 'i' ? INFO : tone === 'n' ? colors.navyMid : GREEN
   return { boxShadow: `inset 3px 0 0 ${color}` }
 }
 
-function grnRowTone(daysOverdue: number): 'd' | 'w' | 's' {
-  if (daysOverdue > 0) return 'd'
-  if (daysOverdue === 0) return 'w'
-  return 's'
-}
-
-function pickListRowTone(row: PickListRow): 'd' | 'w' | 's' {
-  if (row.pickedQty <= 0) return 'd'
-  if (row.pickedQty < row.requiredQty) return 'w'
-  return 's'
+// v3: Pending GRN queue is sorted by approval urgency — Pending for Approval
+// first (needs the Stores Head's action now), then Sent For Approval, then Draft.
+function grnApprovalTone(state: string): 'd' | 'w' | 'n' {
+  if (state === 'Pending for Approval') return 'd'
+  if (state === 'Sent For Approval') return 'w'
+  return 'n'
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -126,6 +126,8 @@ export default function StoresHeadPage() {
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showNotif, setShowNotif]       = useState(false)
   const [aqTab, setAqTab]               = useState<0 | 1>(0)
+  const [busyAction, setBusyAction]     = useState<string | null>(null)
+  const [toast, setToast]               = useState<{ ok: boolean; text: string; href?: string; hrefLabel?: string } | null>(null)
   const switcherRef = useRef<HTMLDivElement>(null)
   const notifRef    = useRef<HTMLDivElement>(null)
 
@@ -137,6 +139,13 @@ export default function StoresHeadPage() {
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
+
+  // Auto-dismiss the write-back toast after 8s, like a real toast notification.
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 8000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const today    = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
   const isoToday = new Date().toISOString().slice(0, 10) // ERPNext list-view date filters need a real date, not the literal "Today"
@@ -159,6 +168,108 @@ export default function StoresHeadPage() {
 
   const erpBase = data.erpBaseUrl.replace(/\/$/, '')
   const erpUrl  = (path: string) => `${erpBase}/app/${path}`
+
+  // Write-back actions (proman_edge.api.stores.*) — proxy calls, show a toast,
+  // refresh the homepage data on success so the acted-on row disappears.
+  // The live API's `summary` field doesn't always match the doc's "preformatted
+  // string" description — some endpoints return the created doc's key fields as
+  // an object instead (e.g. {material_request, item_code, qty, docstatus}).
+  // Never render that object directly; always coerce to a readable string.
+  function formatActionText(value: unknown, fallback: string): string {
+    if (value == null) return fallback
+    if (typeof value === 'string') return value
+    if (typeof value === 'object') {
+      const o = value as Record<string, unknown>
+      const id = o.material_request ?? o.purchase_order ?? o.grn ?? o.name
+      if (id) {
+        const extra = Object.entries(o)
+          .filter(([k]) => !['material_request', 'purchase_order', 'grn', 'name', 'docstatus'].includes(k))
+          .map(([k, v]) => `${k}: ${v}`).join(', ')
+        return `${id}${extra ? ` (${extra})` : ''}`
+      }
+      return JSON.stringify(o)
+    }
+    return String(value)
+  }
+
+  // Defensive: some error paths hand back the whole `{success:false,error:"..."}`
+  // envelope as a stringified blob instead of a clean message. Unwrap it so a
+  // raw JSON string never ends up rendered in the toast.
+  function extractErrorMessage(err: unknown): string {
+    let msg = err instanceof Error ? err.message : String(err)
+    const trimmed = msg.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (typeof parsed?.error === 'string') msg = parsed.error
+        else if (typeof parsed?.message === 'string') msg = parsed.message
+      } catch { /* not JSON — leave msg as-is */ }
+    }
+    return msg
+  }
+
+  async function runAction(key: string, fn: () => Promise<{ ok: boolean; summary?: unknown; error?: { message: string } }>) {
+    setBusyAction(key)
+    setToast(null)
+    try {
+      const result = await fn()
+      if (result.ok) {
+        setToast({ ok: true, text: formatActionText(result.summary, 'Done.') })
+        refresh()
+      } else {
+        setToast({ ok: false, text: formatActionText(result.error?.message, 'Action failed.') })
+      }
+    } catch (err) {
+      setToast({ ok: false, text: extractErrorMessage(err) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  function handleSubmitGrn(grnNo: string) {
+    runAction(`grn:${grnNo}`, () => submitGrn(grnNo))
+  }
+
+  function handleCreateMr(row: BelowReorderNoPoRow) {
+    const qty = Math.max(1, row.reorderLevel - row.currentStock)
+    runAction(`mr:${row.itemCode}`, () => createMaterialRequest(row.itemCode, qty, row.warehouse))
+  }
+
+  async function handleCreatePoFromMr(row: BelowReorderNoPoRow) {
+    if (!row.openMr) return
+    const mr = row.openMr
+    const key = `po:${row.itemCode}`
+    setBusyAction(key)
+    setToast(null)
+    try {
+      const result = await createPoFromMr(mr)
+      if (result.ok) {
+        setToast({ ok: true, text: formatActionText(result.summary, 'Done.') })
+        refresh()
+      } else if (result.error?.code === 'NOT_SUBMITTED') {
+        setToast({
+          ok: false,
+          text: `${mr} hasn't been submitted yet — a PO can only be created from a submitted Material Request.`,
+          href: erpUrl(`material-request/${encodeURIComponent(mr)}`), hrefLabel: 'Open MR to submit',
+        })
+      } else {
+        setToast({ ok: false, text: formatActionText(result.error?.message, 'Action failed.') })
+      }
+    } catch (err) {
+      const msg = extractErrorMessage(err)
+      if (msg.includes('NOT_SUBMITTED')) {
+        setToast({
+          ok: false,
+          text: `${mr} hasn't been submitted yet — a PO can only be created from a submitted Material Request.`,
+          href: erpUrl(`material-request/${encodeURIComponent(mr)}`), hrefLabel: 'Open MR to submit',
+        })
+      } else {
+        setToast({ ok: false, text: msg })
+      }
+    } finally {
+      setBusyAction(null)
+    }
+  }
 
   // Individual items, used for the bell dropdown list.
   const alerts: { level: 'red' | 'amber'; message: string }[] = []
@@ -315,77 +426,114 @@ export default function StoresHeadPage() {
           </div>
         )}
 
+        {/* Write-back result — a floating toast (fixed, bottom-right, auto-dismiss),
+            deliberately distinct from the inline alert banner above. */}
+        {toast && (
+          <div style={{
+            position: 'fixed', bottom: 20, right: 20, zIndex: 200, maxWidth: 420,
+            background: '#fff', border: `1px solid ${toast.ok ? '#9BC9A8' : '#E4B4B4'}`,
+            borderLeft: `4px solid ${toast.ok ? GREEN : RED}`,
+            borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'flex-start', gap: 9,
+            fontSize: 12, color: INK, boxShadow: '0 8px 24px rgba(15,34,64,.18)',
+          }}>
+            <i className={`ti ${toast.ok ? 'ti-circle-check' : 'ti-alert-octagon'}`} style={{ fontSize: 17, flexShrink: 0, marginTop: 1, color: toast.ok ? GREEN : RED }} />
+            <span style={{ flex: 1, lineHeight: 1.5 }}>
+              {toast.text}{' '}
+              {toast.href && (
+                <a href={toast.href} target="_blank" rel="noreferrer" style={{ color: NAVY, fontWeight: 700, textDecoration: 'underline', whiteSpace: 'nowrap' }}>
+                  {toast.hrefLabel ?? 'Open →'}
+                </a>
+              )}
+            </span>
+            <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', color: INK3, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+          </div>
+        )}
+
         {/* KPI band — 4 independent floating cards, matching the template
             (no wrapping band/header — that was borrowed from Finance, not
-            part of this spec) */}
+            part of this spec). v3: cards are informational-only — the small
+            "View all ↗" button is the only click target now, not the whole tile. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
           <KpiTile label="GRNs Pending Today" value={String(data.grnsPendingToday.count)} sub="Deliveries not GRN'd" accent={data.grnsPendingToday.count > 0 ? RED : GREEN}
-            href={erpUrl(`purchase-order?status=["in",["To Receive","To Receive and Bill"]]&schedule_date=${isoToday}`)} />
-          <KpiTile label="Material Issues Pending" value={String(data.materialIssuesPending.count)} sub="Open WO pick lists" accent={AMBER}
+            href={erpUrl(`purchase-receipt?docstatus=0&posting_date=${isoToday}`)} />
+          <KpiTile label="Picklist Pending" value={String(data.materialIssuesPending.count)} sub="Pending / partial" accent={AMBER}
             href={erpUrl('pick-list?purpose=Material Transfer for Manufacture&status=["in",["Open","Draft"]]')} />
           <KpiTile label="Stock Below Reorder" value={String(data.stockBelowReorder.belowReorder)} sub={`${data.stockBelowReorder.stockOut} are stock-out`} accent={RED}
             href={erpUrl('bin')} />
-          <KpiTile label="Subcontracting Orders" value={String(data.subcontractingOrders.count)} sub="Open · transferred · partial" accent={AMBER}
+          <KpiTile label="Subcontracting Order Pending" value={String(data.subcontractingOrders.count)} sub="Open · transferred · partial" accent={AMBER}
             href={erpUrl('subcontracting-order?status=["in",["Open","Material Transferred","Partial Material Transferred","Partially Received"]]')} />
         </div>
 
         {/* Zone 3 — Pending GRN | Material issue | Stock alerts */}
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 340px' }}>
-            <Card title="Pending GRN queue" icon="ti-truck-delivery" fill>
+            <Card title="Pending GRN queue" icon="ti-truck-delivery" fill
+              right={<Pill tone="d">{data.pendingGrnList.length} pending</Pill>}>
               {data.pendingGrnList.length === 0
                 ? <EmptyState>No pending GRNs.</EmptyState>
-                : <Table
-                    widths={['19%', '21%', '24%', '18%', '18%']}
-                    head={['PO no.', 'Vendor', 'Item', 'Status', 'Action']}
-                    rows={data.pendingGrnList.slice(0, 8).map(r => (
-                      <>
-                        <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(grnRowTone(r.daysOverdue)) }}><a href={erpUrl(`purchase-order/${encodeURIComponent(r.poNo)}`)} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }} title={r.poNo}>{r.poNo}</a></td>
-                        <td title={r.vendor}>{r.vendor}</td>
-                        <td title={r.firstItem}>{r.firstItem}{r.itemCount > 1 ? ' …' : ''}</td>
-                        <td style={{ overflow: 'visible', paddingRight: 12 }}>{r.daysOverdue > 0
-                          ? <Pill tone="d">{r.daysOverdue}d over</Pill>
-                          : r.daysOverdue === 0
-                            ? <Pill tone="w">Today</Pill>
-                            : <Pill tone="s">{fmtDate(r.requiredBy)}</Pill>
-                        }</td>
-                        <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>
-                          {r.daysOverdue >= 0
-                            ? <a href={erpUrl(`purchase-receipt/new?purchase_order=${encodeURIComponent(r.poNo)}`)} target="_blank" rel="noreferrer"><button style={btnPri}>GRN</button></a>
-                            : <a href={erpUrl(`purchase-order/${encodeURIComponent(r.poNo)}`)} target="_blank" rel="noreferrer"><button style={btnOutline}>View</button></a>
-                          }
-                        </td>
-                      </>
-                    ))}
-                  />
+                : <>
+                    <Table
+                      widths={['19%', '21%', '25%', '18%', '17%']}
+                      head={['GRN ID', 'Vendor', 'Item', 'Status', 'Action']}
+                      rows={data.pendingGrnList.slice(0, 8).map(r => (
+                        <>
+                          <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(grnApprovalTone(r.approvalState)) }}>
+                            <a href={erpUrl(`purchase-receipt/${encodeURIComponent(r.grnNo)}`)} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}
+                              title={`${r.grnNo} · ${fmtDate(r.postingDate)} · ${fmtMoney(r.value)}${r.linkedPo ? ` · PO ${r.linkedPo}` : ''}`}>{r.grnNo}</a>
+                          </td>
+                          <td title={r.vendor}>{r.vendor}</td>
+                          <td title={r.firstItem}>{r.firstItem}{r.itemCount > 1 ? ' …' : ''}</td>
+                          <td style={{ overflow: 'visible', paddingRight: 12 }}>
+                            <Pill tone={grnApprovalTone(r.approvalState)}>{r.approvalState}</Pill>
+                          </td>
+                          <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>
+                            <button
+                              disabled={busyAction === `grn:${r.grnNo}`}
+                              onClick={() => handleSubmitGrn(r.grnNo)}
+                              style={{ ...btnPri, opacity: busyAction === `grn:${r.grnNo}` ? 0.5 : 1 }}
+                            >{busyAction === `grn:${r.grnNo}` ? '…' : 'Submit'}</button>
+                          </td>
+                        </>
+                      ))}
+                    />
+                    <ViewAllButton href={erpUrl('purchase-receipt?docstatus=0&workflow_state=["in",["Draft","Pending for Approval","Sent For Approval"]]')} />
+                  </>
               }
             </Card>
           </div>
 
           <div style={{ flex: '1 1 340px' }}>
-            <Card title="Material issue queue" icon="ti-arrow-right" right={<span style={{ fontSize: 10 }}><Pill tone="w">{data.materialIssueQueue.length} pending</Pill></span>} fill>
+            <Card title="Pick List Pending" icon="ti-list" right={<span style={{ fontSize: 10 }}><Pill tone="w">{data.materialIssueQueue.length} open</Pill></span>} fill>
               {data.materialIssueQueue.length === 0
-                ? <EmptyState>No open material issues.</EmptyState>
-                : <Table
-                    widths={['30%', '24%', '20%', '26%']}
-                    head={['Pick list', 'WO', 'Picked/Req', 'Status']}
-                    rows={data.materialIssueQueue.slice(0, 8).map(r => (
-                      <>
-                        <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(pickListRowTone(r)) }} title={r.pickListId}>{r.pickListId}</td>
-                        <td>{r.workOrder ?? '—'}</td>
-                        <td style={{ fontWeight: 700, color: r.pickedQty <= 0 ? RED : r.pickedQty < r.requiredQty ? AMBER : GREEN, paddingRight: 12 }}>
-                          {r.pickedQty}/{r.requiredQty}
-                        </td>
-                        <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>{pickListStatus(r, erpUrl('stock-entry/new'))}</td>
-                      </>
-                    ))}
-                  />
+                ? <EmptyState>No open pick lists.</EmptyState>
+                : <>
+                    <Table
+                      widths={['24%', '17%', '17%', '19%', '23%']}
+                      head={['Picklist ID', 'WO ID', 'Date', 'Total Qty', 'Status']}
+                      rows={data.materialIssueQueue.slice(0, 8).map(r => (
+                        <>
+                          <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(pickListRowTone(r)) }} title={r.pickListId}>{r.pickListId}</td>
+                          <td>{r.workOrder ?? '—'}</td>
+                          <td>{fmtDate(r.pickDate)}</td>
+                          <td style={{ fontWeight: 700 }}>{r.requiredQty} nos</td>
+                          <td style={{ overflow: 'visible' }}>{pickListStatus(r)}</td>
+                        </>
+                      ))}
+                    />
+                    <ViewAllButton href={erpUrl('pick-list?purpose=Material Transfer for Manufacture&status=["in",["Open","Draft"]]')} />
+                  </>
               }
             </Card>
           </div>
 
           <div style={{ flex: '1 1 320px' }}>
             <Card title="Stock alerts" icon="ti-package-off" right={<Pill tone="d">{data.stockAlerts.stockOutBlockingProduction.length} stock-out</Pill>} fill>
+              {/* Section 1 keeps a plain "Raise PO" deep link — the v3 SQL doc's
+                  stock-out query has no open_mr/next_action columns (only Section
+                  2's below-reorder query does), so there's no MR-chain data here
+                  to drive conditional MR/PO buttons. The v3 template mockup shows
+                  MR/PO buttons on this section too, but that's demo copy without
+                  a backing query — following the SQL doc over the mockup. */}
               <div style={{ background: RED_BG, borderLeft: `3px solid ${RED}`, borderRadius: 8, padding: '8px 12px' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: RED, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
                   <i className="ti ti-alert-triangle" style={{ fontSize: 13 }} />Stock-out — blocking production
@@ -413,9 +561,26 @@ export default function StoresHeadPage() {
                     <div key={r.itemCode + r.warehouse} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 80px auto', alignItems: 'center', gap: 8, fontSize: 10.5, padding: '5px 0' }}>
                       <span style={{ fontWeight: 700, color: INK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.itemName}>{r.itemName}</span>
                       <span style={{ color: INK2 }}>{r.currentStock}/{r.reorderLevel}</span>
-                      <a href={erpUrl('purchase-order/new')} target="_blank" rel="noreferrer" style={{ justifySelf: 'end' }}>
-                        <button style={btnPri}>PO</button>
-                      </a>
+                      <span style={{ justifySelf: 'end', display: 'flex', gap: 5 }}>
+                        {r.openMr
+                          ? <button
+                              disabled={busyAction === `po:${r.itemCode}`}
+                              onClick={() => handleCreatePoFromMr(r)}
+                              title={`Create PO from ${r.openMr} · ${r.itemName}`}
+                              style={{ ...btnPri, opacity: busyAction === `po:${r.itemCode}` ? 0.5 : 1 }}
+                            >{busyAction === `po:${r.itemCode}` ? '…' : 'PO'}</button>
+                          : <>
+                              <button
+                                disabled={busyAction === `mr:${r.itemCode}`}
+                                onClick={() => handleCreateMr(r)}
+                                style={{ ...btnOutline, opacity: busyAction === `mr:${r.itemCode}` ? 0.5 : 1 }}
+                              >{busyAction === `mr:${r.itemCode}` ? '…' : 'MR'}</button>
+                              <a href={erpUrl('purchase-order/new')} target="_blank" rel="noreferrer">
+                                <button style={btnPri}>PO</button>
+                              </a>
+                            </>
+                        }
+                      </span>
                     </div>
                   ))
                 }
@@ -457,24 +622,27 @@ export default function StoresHeadPage() {
             <Card title="Slow-moving stock" icon="ti-clock" right={<Pill tone="n">Top {data.slowMovingStock.length} by idle days</Pill>} fill>
               {data.slowMovingStock.length === 0
                 ? <EmptyState>No idle stock detected.</EmptyState>
-                : <Table
-                    widths={['28%', '18%', '11%', '14%', '12%', '17%']}
-                    head={['Item', 'Category', 'Qty', 'Value', 'Idle', 'Action']}
-                    rows={data.slowMovingStock.map(s => (
-                      <>
-                        <td style={{ fontWeight: 700 }} title={s.itemName}>{s.itemName}</td>
-                        <td>{s.category}</td>
-                        <td>{s.currentQty}</td>
-                        <td>{fmtMoney(s.totalValue)}</td>
-                        <td style={{ fontWeight: 700, color: s.daysIdle > 180 ? RED : AMBER }}>{s.daysIdle}d</td>
-                        <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>
-                          <a href={erpUrl(`query-report/Stock Ledger?item_code=${encodeURIComponent(s.itemCode)}`)} target="_blank" rel="noreferrer">
-                            <button style={btnOutline}>Ledger</button>
-                          </a>
-                        </td>
-                      </>
-                    ))}
-                  />
+                : <>
+                    <Table
+                      widths={['28%', '18%', '11%', '14%', '12%', '17%']}
+                      head={['Item', 'Category', 'Qty', 'Value', 'Idle', 'Action']}
+                      rows={data.slowMovingStock.map(s => (
+                        <>
+                          <td style={{ fontWeight: 700 }} title={s.itemName}>{s.itemName}</td>
+                          <td>{s.category}</td>
+                          <td>{s.currentQty}</td>
+                          <td>{fmtMoney(s.totalValue)}</td>
+                          <td style={{ fontWeight: 700, color: s.daysIdle > 180 ? RED : AMBER }}>{s.daysIdle}d</td>
+                          <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>
+                            <a href={erpUrl(`query-report/Stock Ledger?item_code=${encodeURIComponent(s.itemCode)}`)} target="_blank" rel="noreferrer">
+                              <button style={btnOutline}>Ledger</button>
+                            </a>
+                          </td>
+                        </>
+                      ))}
+                    />
+                    <ViewAllButton href={erpUrl('query-report/Stock Ageing')} />
+                  </>
               }
             </Card>
           </div>
@@ -496,10 +664,11 @@ export default function StoresHeadPage() {
               data.actionQueue.countVariances.length === 0
                 ? <EmptyState>No open count variances.</EmptyState>
                 : <Table
-                    widths={['16%', '26%', '15%', '15%', '14%', '14%']}
-                    head={['Date', 'Item', 'System', 'Physical', 'Variance', 'Value']}
+                    widths={['14%', '13%', '22%', '13%', '13%', '12%', '13%']}
+                    head={['Reco ID', 'Reco Date', 'Item', 'System', 'Physical', 'Qty Diff', 'Value']}
                     rows={data.actionQueue.countVariances.slice(0, 10).map(v => (
                       <>
+                        <td style={{ color: NAVY, fontWeight: 700 }} title={v.reconciliation}>{v.reconciliation}</td>
                         <td>{fmtDate(v.postingDate)}</td>
                         <td style={{ fontWeight: 700 }} title={v.itemCode}>{v.itemCode}</td>
                         <td>{v.systemQty}</td>
@@ -544,6 +713,7 @@ export default function StoresHeadPage() {
                 <i className="ti ti-building-warehouse" style={{ color: ORANGE }} />
                 Total stock value <strong>{fmtMoney(data.warehouseStockValue.reduce((s, w) => s + w.stockValue, 0))}</strong> across {data.warehouseStockValue.length} warehouses
               </div>
+              <ViewAllButton href={erpUrl('query-report/Stock Balance')} />
             </Card>
           </div>
 
@@ -553,7 +723,7 @@ export default function StoresHeadPage() {
                 <QuickAction icon="ti-package" label="Create GRN" href={erpUrl('purchase-receipt/new')} />
                 <QuickAction icon="ti-list" label="Create Pick List" href={erpUrl('pick-list/new')} />
                 <QuickAction icon="ti-transfer" label="Stock Transfer" href={erpUrl('stock-entry/new')} />
-                <QuickAction icon="ti-corner-up-left" label="Material Return" href={erpUrl('work-order?status=["in",["Completed","Closed"]]')} />
+                <QuickAction icon="ti-building-factory-2" label="Subcontracting Order" href={erpUrl('subcontracting-order/new')} />
                 <QuickAction icon="ti-package-off" label="Shortage Report" href={erpUrl('query-report/Work Order Stock Report')} />
                 <QuickAction icon="ti-calendar" label="Expected Receipts" href={erpUrl('purchase-order?status=["in",["To Receive","To Receive and Bill"]]')} />
                 <QuickAction icon="ti-report" label="Stock Ledger" href={erpUrl('query-report/Stock Ledger')} />
@@ -622,6 +792,16 @@ function Table({ head, rows, widths }: { head: string[]; rows: React.ReactNode[]
   )
 }
 
+// Full-width "View all ↗" link at the bottom of a card, matching the
+// template's `.vall` treatment.
+function ViewAllButton({ href }: { href: string }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" style={{ display: 'block', textAlign: 'right', marginTop: 8, textDecoration: 'none' }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: '#E06804' }}>View all ↗</span>
+    </a>
+  )
+}
+
 function QuickAction({ icon, label, href }: { icon: string; label: string; href: string }) {
   return (
     <a href={href} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
@@ -645,21 +825,28 @@ const KPI_VALUE_COLOR: Record<string, string> = {
   [GREEN]: '#4ADE80',
 }
 
+// v3: KPI tiles are informational-only (no whole-card click) — only the small
+// "View all ↗" button pinned to the bottom is actionable, matching the template.
 function KpiTile({ label, value, sub, accent, href }: {
   label: string; value: string; sub: string; accent: string; href: string
 }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-      <div style={{
-        background: 'linear-gradient(180deg,#32376F 0%,#2A2F69 100%)',
-        border: '1px solid rgba(255,255,255,.09)', borderTop: `3px solid ${accent}`,
-        borderRadius: 12, padding: '12px 16px', cursor: 'pointer',
-        boxShadow: '0 1px 3px rgba(36,40,89,.25)',
-      }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: '#C9CBE0', marginBottom: 6 }}>{label}</div>
-        <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 26, color: KPI_VALUE_COLOR[accent] ?? '#fff', margin: '6px 0 3px' }}>{value}</div>
-        <div style={{ fontSize: 11, color: '#8F92B5' }}>{sub}</div>
-      </div>
-    </a>
+    <div style={{
+      background: 'linear-gradient(180deg,#32376F 0%,#2A2F69 100%)',
+      border: '1px solid rgba(255,255,255,.09)', borderTop: `3px solid ${accent}`,
+      borderRadius: 12, padding: '12px 16px',
+      boxShadow: '0 1px 3px rgba(36,40,89,.25)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: '#C9CBE0', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 26, color: KPI_VALUE_COLOR[accent] ?? '#fff', margin: '6px 0 3px' }}>{value}</div>
+      <div style={{ fontSize: 11, color: '#8F92B5' }}>{sub}</div>
+      <a href={href} target="_blank" rel="noreferrer" style={{ alignSelf: 'flex-end', marginTop: 'auto', textDecoration: 'none' }}>
+        <button style={{
+          fontSize: 9, fontWeight: 700, padding: '3px 10px', borderRadius: 99, marginTop: 10,
+          background: 'rgba(255,255,255,.12)', border: '1px solid rgba(255,255,255,.22)', color: '#fff', cursor: 'pointer',
+        }}>View all ↗</button>
+      </a>
+    </div>
   )
 }

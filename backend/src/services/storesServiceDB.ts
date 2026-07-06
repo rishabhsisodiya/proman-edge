@@ -1,10 +1,11 @@
 import { query, queryBigSelect } from '../db'
 import { cacheGet, cacheSet } from '../cache/redis'
+import { frappePost } from '../lib/frappeClient'
 import type {
   StoresHomepageData, GrnsPendingToday, MaterialIssuesPending, StockBelowReorder,
   SubcontractingOrders, PendingGrnRow, PickListRow, StockAlerts, StockOutAlertRow,
   BelowReorderNoPoRow, ExpectedDeliveryDay, SlowMovingStockRow, ActionQueue,
-  CountVarianceRow, GrnRaisedTodayRow, WarehouseStockValueRow,
+  CountVarianceRow, GrnRaisedTodayRow, WarehouseStockValueRow, StoresActionResult,
 } from '../types/stores'
 
 // Single site (PISPL) — this DB connection is already scoped to the one
@@ -13,16 +14,15 @@ import type {
 const erpBaseUrl = () => (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, '')
 
 // ── W-STR-01 — GRNs pending today (KPI) ──────────────────────────────────────
+// v3: draft GRNs (Purchase Receipt, docstatus=0) posted today — GRN-entry-based,
+// not Purchase-Order-based. Replaces the v2 "POs awaiting GRN today" logic.
 
-// FAST: filter the INDEXED status first (schedule_date/per_received are NOT
-// indexed — a bare filter scans all 46,739 POs, ~9s). status IN ('To Receive',
-// 'To Receive and Bill') = exactly the submitted, GRN-pending POs. ~0.1s.
 async function getGrnsPendingToday(): Promise<GrnsPendingToday> {
   const rows = await query<{ grns_pending_today: number }>(
     `SELECT COUNT(*) AS grns_pending_today
-     FROM \`tabPurchase Order\`
-     WHERE status IN ('To Receive', 'To Receive and Bill')
-       AND schedule_date = CURDATE()`,
+     FROM \`tabPurchase Receipt\`
+     WHERE docstatus = 0 AND is_return = 0
+       AND posting_date = CURDATE()`,
   )
   return { count: Number(rows[0]?.grns_pending_today ?? 0) }
 }
@@ -73,30 +73,31 @@ async function getSubcontractingOrders(): Promise<SubcontractingOrders> {
 
 async function getPendingGrnList(): Promise<PendingGrnRow[]> {
   const rows = await query<{
-    po_no: string; vendor: string; first_item: string | null; item_count: number
-    ordered_qty: number; required_by: string; days_overdue: number
+    grn_no: string; vendor: string; approval_state: string; first_item: string | null
+    item_count: number; posting_date: string; value: number; linked_po: string | null
   }>(
     `SELECT
-        po.name                              AS po_no,
-        po.supplier                          AS vendor,
+        pr.name                              AS grn_no,
+        pr.supplier                          AS vendor,
+        pr.workflow_state                    AS approval_state,
         COALESCE(fi.item_name, fi.item_code) AS first_item,
         ic.n                                 AS item_count,
-        fi.qty                               AS ordered_qty,
-        po.schedule_date                     AS required_by,
-        DATEDIFF(CURDATE(), po.schedule_date) AS days_overdue
-     FROM \`tabPurchase Order\` po
-     LEFT JOIN \`tabPurchase Order Item\` fi
-         ON fi.parent = po.name AND fi.idx = 1
+        pr.posting_date,
+        ROUND(pr.grand_total, 0)             AS value,
+        (SELECT pri.purchase_order FROM \`tabPurchase Receipt Item\` pri
+         WHERE pri.parent = pr.name AND IFNULL(pri.purchase_order,'') <> '' LIMIT 1) AS linked_po
+     FROM \`tabPurchase Receipt\` pr
+     LEFT JOIN \`tabPurchase Receipt Item\` fi ON fi.parent = pr.name AND fi.idx = 1
      LEFT JOIN (
-         SELECT parent, COUNT(*) AS n FROM \`tabPurchase Order Item\` GROUP BY parent
-     ) ic ON ic.parent = po.name
-     WHERE po.status IN ('To Receive', 'To Receive and Bill')
-     ORDER BY po.schedule_date ASC
-     LIMIT 50`,
+         SELECT parent, COUNT(*) AS n FROM \`tabPurchase Receipt Item\` GROUP BY parent
+     ) ic ON ic.parent = pr.name
+     WHERE pr.docstatus = 0 AND pr.is_return = 0
+     ORDER BY FIELD(pr.workflow_state, 'Pending for Approval', 'Sent For Approval', 'Draft'), pr.posting_date ASC`,
   )
   return rows.map(r => ({
-    poNo: r.po_no, vendor: r.vendor, firstItem: r.first_item ?? '—', itemCount: Number(r.item_count ?? 1),
-    orderedQty: Number(r.ordered_qty ?? 0), requiredBy: r.required_by, daysOverdue: Number(r.days_overdue),
+    grnNo: r.grn_no, vendor: r.vendor, approvalState: r.approval_state, firstItem: r.first_item ?? '—',
+    itemCount: Number(r.item_count ?? 1), postingDate: r.posting_date, value: Number(r.value),
+    linkedPo: r.linked_po,
   }))
 }
 
@@ -162,19 +163,31 @@ async function getStockOutBlockingProduction(): Promise<StockOutAlertRow[]> {
   }))
 }
 
+// v3: below-reorder items become an MR→PO action chain — each item gets the
+// open Purchase MR (if any) and the next action to take (Create MR, or
+// Create PO against the existing MR). Needs SQL_BIG_SELECTS (large joins).
 async function getBelowReorderNoOpenPo(): Promise<BelowReorderNoPoRow[]> {
-  const rows = await query<{
-    item_code: string; item_name: string; current_stock: number; reorder_level: number; warehouse: string
+  const rows = await queryBigSelect<{
+    item_code: string; item_name: string; current_stock: number; reorder_level: number
+    warehouse: string; is_stockout: number; open_mr: string | null
   }>(
     `SELECT
-        ir.parent AS item_code, it.item_name,
-        IFNULL(b.actual_qty, 0)        AS current_stock,
-        ir.warehouse_reorder_level     AS reorder_level,
-        ir.warehouse
+        ir.parent                  AS item_code, it.item_name,
+        IFNULL(b.actual_qty, 0)    AS current_stock,
+        ir.warehouse_reorder_level AS reorder_level, ir.warehouse,
+        (IFNULL(b.actual_qty,0) = 0) AS is_stockout,
+        mr.mr_name                 AS open_mr
      FROM \`tabItem Reorder\` ir
      JOIN \`tabItem\` it ON it.name = ir.parent
-     LEFT JOIN \`tabBin\` b
-         ON b.item_code = ir.parent AND b.warehouse = ir.warehouse
+     LEFT JOIN \`tabBin\` b ON b.item_code = ir.parent AND b.warehouse = ir.warehouse
+     LEFT JOIN (
+         SELECT mri.item_code, MIN(mri.parent) AS mr_name
+         FROM \`tabMaterial Request Item\` mri
+         JOIN \`tabMaterial Request\` mr ON mr.name = mri.parent
+         WHERE mr.docstatus < 2 AND mr.material_request_type = 'Purchase'
+           AND mr.status IN ('Pending', 'Draft', 'Partially Ordered')
+         GROUP BY mri.item_code
+     ) mr ON mr.item_code = ir.parent
      WHERE ir.warehouse_reorder_level > 0
        AND IFNULL(b.actual_qty, 0) < ir.warehouse_reorder_level
        AND ir.parent NOT IN (
@@ -188,7 +201,8 @@ async function getBelowReorderNoOpenPo(): Promise<BelowReorderNoPoRow[]> {
   )
   return rows.map(r => ({
     itemCode: r.item_code, itemName: r.item_name, currentStock: Number(r.current_stock),
-    reorderLevel: Number(r.reorder_level), warehouse: r.warehouse,
+    reorderLevel: Number(r.reorder_level), warehouse: r.warehouse, isStockout: Boolean(r.is_stockout),
+    openMr: r.open_mr, nextAction: r.open_mr ? 'Create PO against MR' : 'Create MR',
   }))
 }
 
@@ -347,6 +361,39 @@ async function getWarehouseStockValue(): Promise<WarehouseStockValueRow[]> {
   return rows.map(r => ({
     warehouse: r.warehouse, items: Number(r.items), totalQty: Number(r.total_qty), stockValue: Number(r.stock_value),
   }))
+}
+
+// ── Write-backs via Frappe API (proman_edge.api.stores.*) ───────────────────
+// Per Store_Head_SQL_Queries_v3.md: these are "deployed + live-tested" custom
+// whitelisted methods on the ERP side — we only proxy them, no schema/whitelist
+// work of our own. Known failure modes (surfaced via StoresActionResult.error):
+//   submitGrn:            NO_TRANSITION (Draft has no workflow transition yet),
+//                          SUBMIT_FAILED (missing inv_no/test_certificate/inspection_report)
+//   createPoFromMr:        SUPPLIER_REQUIRED, PO_FAILED (non-purchase MR items)
+
+export async function submitGrn(grnName: string, action?: string): Promise<StoresActionResult> {
+  return frappePost<StoresActionResult>(
+    'proman_edge.api.stores.submit_grn',
+    { grn: grnName, action },
+  )
+}
+
+export async function createMaterialRequest(
+  itemCode: string, qty: number, warehouse?: string,
+): Promise<StoresActionResult> {
+  return frappePost<StoresActionResult>(
+    'proman_edge.api.stores.create_material_request',
+    { item_code: itemCode, qty, warehouse },
+  )
+}
+
+export async function createPoFromMr(
+  materialRequest: string, supplier?: string,
+): Promise<StoresActionResult> {
+  return frappePost<StoresActionResult>(
+    'proman_edge.api.stores.create_po_from_mr',
+    { material_request: materialRequest, supplier },
+  )
 }
 
 // ── Main homepage aggregate ───────────────────────────────────────────────────

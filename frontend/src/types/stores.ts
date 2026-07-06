@@ -1,13 +1,14 @@
 // ── Stores Head homepage (HP-STR-001) — single site (PISPL) ─────────────────
 
 export interface PendingGrnRow {
-  poNo: string
+  grnNo: string
   vendor: string
+  approvalState: string
   firstItem: string
   itemCount: number
-  orderedQty: number
-  requiredBy: string
-  daysOverdue: number
+  postingDate: string
+  value: number
+  linkedPo: string | null
 }
 
 export interface PickListRow {
@@ -33,6 +34,9 @@ export interface BelowReorderNoPoRow {
   currentStock: number
   reorderLevel: number
   warehouse: string
+  isStockout: boolean
+  openMr: string | null
+  nextAction: 'Create MR' | 'Create PO against MR'
 }
 
 export interface StockAlerts {
@@ -87,6 +91,15 @@ export interface WarehouseStockValueRow {
   items: number
   totalQty: number
   stockValue: number
+}
+
+export interface StoresActionResult {
+  ok: boolean
+  widget: string
+  summary?: unknown   // doc says preformatted string, but live API sometimes returns
+                      // the created doc's fields as an object instead — don't assume shape
+  deepLink?: string
+  error?: { code: string; message: string }
 }
 
 export interface StoresHomepageData {

@@ -1,5 +1,5 @@
 // ── Stores Head homepage (HP-STR-001) — single site (PISPL) ─────────────────
-// Source: proman-docs/Store_Head_Dashboard_SQL_Queries_v2.md
+// Source: proman-docs/Store_Head_SQL_Queries_v3.md
 
 // ── W-STR-01..04 KPIs ─────────────────────────────────────────────────────────
 
@@ -20,19 +20,25 @@ export interface SubcontractingOrders {
   count: number
 }
 
-// ── W-STR-06 Pending GRN list ─────────────────────────────────────────────────
+// ── W-STR-06 Pending GRN list (draft + pending-approval GRNs) ───────────────
+// v3: rewritten from Purchase Order (awaiting GRN) to actual Purchase Receipt
+// (GRN) entries sitting at docstatus=0 — Draft / Pending for Approval / Sent
+// For Approval. Row action is a real write-back (submit_grn), not a deep link.
 
 export interface PendingGrnRow {
-  poNo: string
+  grnNo: string
   vendor: string
+  approvalState: string   // Draft | Pending for Approval | Sent For Approval
   firstItem: string
   itemCount: number
-  orderedQty: number
-  requiredBy: string
-  daysOverdue: number   // +ve overdue, 0 today, -ve future
+  postingDate: string
+  value: number
+  linkedPo: string | null
 }
 
-// ── W-STR-07 Material issue queue (Pick List) ────────────────────────────────
+// ── W-STR-07 Pick List Pending ───────────────────────────────────────────────
+// v3: simplified — pick date column, total (required) qty, 2-state pill
+// (Pending = nothing picked yet, Partial = some picked). No per-row action.
 
 export interface PickListRow {
   pickListId: string
@@ -59,6 +65,9 @@ export interface BelowReorderNoPoRow {
   currentStock: number
   reorderLevel: number
   warehouse: string
+  isStockout: boolean
+  openMr: string | null
+  nextAction: 'Create MR' | 'Create PO against MR'
 }
 
 export interface StockAlerts {
@@ -122,6 +131,20 @@ export interface WarehouseStockValueRow {
   items: number
   totalQty: number
   stockValue: number
+}
+
+// ── Write-back API responses (proman_edge.api.stores.*) ──────────────────────
+
+export interface StoresActionResult {
+  ok: boolean
+  widget: string
+  summary?: unknown   // doc says preformatted string, but live API sometimes returns
+                      // the created doc's fields as an object instead — don't assume shape
+  deepLink?: string
+  error?: {
+    code: string
+    message: string
+  }
 }
 
 // ── Full homepage payload ─────────────────────────────────────────────────────
