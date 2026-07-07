@@ -202,6 +202,7 @@ export default function ManufacturingHeadHomepage() {
     { label: 'Procurement Head', slug: 'procurement-head' },
     { label: 'Finance Head',     slug: 'finance-head'     },
     { label: 'Stores Head',      slug: 'stores-head'      },
+    { label: 'Dispatch Head',    slug: 'dispatch-head'    },
   ]
 
   const fetchPipelineOrders = async (page: number, append: boolean, search = '') => {

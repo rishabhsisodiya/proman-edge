@@ -16,6 +16,7 @@ const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
     { label: 'Procurement Head',   slug: 'procurement-head'  },
     { label: 'Finance Head',       slug: 'finance-head'      },
     { label: 'Stores Head',        slug: 'stores-head'       },
+    { label: 'Dispatch Head',      slug: 'dispatch-head'     },
   ],
   'md': [
     { label: 'Sales Head',         slug: 'sales-head'         },
@@ -23,6 +24,7 @@ const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
     { label: 'Procurement Head',   slug: 'procurement-head'  },
     { label: 'Finance Head',       slug: 'finance-head'      },
     { label: 'Stores Head',        slug: 'stores-head'       },
+    { label: 'Dispatch Head',      slug: 'dispatch-head'     },
   ],
 }
 

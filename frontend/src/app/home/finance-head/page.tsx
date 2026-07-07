@@ -396,6 +396,7 @@ export default function FinanceHeadPage() {
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
     { label: 'Procurement Head',   slug: 'procurement-head'   },
     { label: 'Stores Head',        slug: 'stores-head'        },
+    { label: 'Dispatch Head',      slug: 'dispatch-head'      },
   ]
 
   useEffect(() => {

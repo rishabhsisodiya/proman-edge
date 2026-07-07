@@ -40,6 +40,7 @@ const SWITCHER_OPTIONS = [
   { label: 'Sales Head',         slug: 'sales-head'         },
   { label: 'Manufacturing Head', slug: 'manufacturing-head' },
   { label: 'Procurement Head',   slug: 'procurement-head'   },
+  { label: 'Dispatch Head',      slug: 'dispatch-head'      },
 ]
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
