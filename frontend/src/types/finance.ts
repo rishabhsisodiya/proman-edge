@@ -132,23 +132,10 @@ export interface JournalEntryPending {
   entity: string
 }
 
-export interface ApReconciliationItem {
-  source: string
-  item: string
-  party: string
-  partyType: string
-  amount: number
-  daysOut: number
-  aging: string
-  status: string
-  entity: string
-}
-
 export interface ActionQueue {
   paymentsToRelease: UnpaidInvoice[]
   paymentsToReleaseTotal: number
   journalEntriesPending: JournalEntryPending[]
-  apReconciliation: ApReconciliationItem[]
 }
 
 export interface PoApprovalItem {
@@ -163,7 +150,10 @@ export interface PoApprovalItem {
 
 export interface FinanceAlert {
   level: 'red' | 'amber'
-  message: string
+  title: string
+  subtitle: string
+  entityLabel: string | null
+  link?: string
   reason?: string
 }
 

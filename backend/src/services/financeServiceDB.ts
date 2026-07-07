@@ -2,12 +2,13 @@ import { query } from '../db'
 import { frappePost } from '../lib/frappeClient'
 import { getFinanceSparkline } from './financeSnapshotService'
 import { getGmTargetPct } from './financeSettingsService'
+import { rupees } from '../lib/format'
 import type {
   FinanceHomepageData, CashBank, CashBankAccount, EntityAmountWithTrend,
   Revenue, PeriodStat, Period,
   OverdueReceivables, ReceivablesAgeing, AgeingBucket, TopDebtor,
   GstLiability, PayablesDue, PayablesInvoiceRow, ActionQueue,
-  UnpaidInvoice, JournalEntryPending, ApReconciliationItem, FinanceAlert,
+  UnpaidInvoice, JournalEntryPending, FinanceAlert,
   GrossMargin, GrossMarginStat, PoApprovalItem, FinanceActionResult,
 } from '../types/finance'
 
@@ -470,10 +471,10 @@ async function getPayablesInvoices14d(companies: string[]): Promise<PayablesInvo
   return perEntity.flat().sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }
 
-// ── W-FIN-11 — Action queue (3 tabs) ─────────────────────────────────────────
+// ── W-FIN-11 — Action queue (2 tabs; AP Reconciliation removed per template) ─
 
 async function getActionQueue(companies: string[]): Promise<ActionQueue> {
-  const [paymentsToRelease, paymentsToReleaseTotal, journalEntriesPending, apReconciliation] = await Promise.all([
+  const [paymentsToRelease, paymentsToReleaseTotal, journalEntriesPending] = await Promise.all([
     // Tab 1 — per Shivam's v2 doc: fully-unpaid Purchase Invoices (no Payment Entry
     // made yet), last 12 months. 'Release' calls proman_edge.api.finance.make_payment_entry
     // to create a draft Payment Entry (see releasePayment() below).
@@ -528,103 +529,48 @@ async function getActionQueue(companies: string[]): Promise<ActionQueue> {
         voucherType: r.voucher_type, daysPending: Number(r.days_pending), entity: company,
       }))
     })),
-
-    Promise.all(companies.map(async company => {
-      const rows = await query<{
-        source: string; item: string; party: string; party_type: string
-        amount: number; days_out: number; aging: string; status: string
-      }>(
-        `SELECT
-            source, item, party, party_type, amount, days_out,
-            CASE
-                WHEN days_out > 365 THEN '>1yr'
-                WHEN days_out > 180 THEN '180-365d'
-                WHEN days_out > 90  THEN '90-180d'
-                ELSE '30-90d'
-            END AS aging,
-            status
-         FROM (
-             SELECT
-                 'Payment Entry' AS source, pe.name AS item, pe.party, pe.party_type,
-                 pe.unallocated_amount AS amount,
-                 DATEDIFF(CURDATE(), pe.posting_date) AS days_out,
-                 CASE
-                     WHEN r.has_ref = 1             THEN 'Partial recon'
-                     WHEN pe.party_type = 'Employee' THEN 'No claim'
-                     ELSE 'No invoice'
-                 END AS status
-             FROM \`tabPayment Entry\` pe
-             LEFT JOIN (
-                 SELECT parent,
-                        MAX(reference_doctype IN ('Purchase Invoice', 'Sales Invoice', 'Expense Claim')) AS has_ref
-                 FROM \`tabPayment Entry Reference\`
-                 GROUP BY parent
-             ) r ON r.parent = pe.name
-             WHERE pe.docstatus = 1
-               AND pe.company = ?
-               AND pe.payment_type = 'Pay'
-               AND pe.party_type IN ('Supplier', 'Employee')
-               AND pe.unallocated_amount > 0
-               AND pe.posting_date < CURDATE() - INTERVAL 30 DAY
-
-             UNION ALL
-
-             SELECT
-                 'Purchase Order', po.name, po.supplier, 'Supplier',
-                 po.advance_paid, DATEDIFF(CURDATE(), po.transaction_date), 'No GRN'
-             FROM \`tabPurchase Order\` po
-             WHERE po.docstatus = 1 AND po.company = ?
-               AND po.advance_paid > 0
-               AND IFNULL(po.per_received, 0) = 0
-               AND po.transaction_date < CURDATE() - INTERVAL 30 DAY
-
-             UNION ALL
-
-             SELECT
-                 'Purchase Invoice', pi.name, pi.supplier, 'Supplier',
-                 pi.outstanding_amount, DATEDIFF(CURDATE(), pi.posting_date), 'Pending TDS'
-             FROM \`tabPurchase Invoice\` pi
-             WHERE pi.docstatus = 1 AND pi.company = ?
-               AND pi.apply_tds = 1
-               AND pi.outstanding_amount > 0
-               AND pi.outstanding_amount < pi.grand_total
-               AND pi.posting_date < CURDATE() - INTERVAL 30 DAY
-         ) q
-         ORDER BY days_out DESC`,
-        [company, company, company],
-      )
-      return rows.map((r): ApReconciliationItem => ({
-        source: r.source, item: r.item, party: r.party, partyType: r.party_type,
-        amount: Number(r.amount), daysOut: Number(r.days_out), aging: r.aging,
-        status: r.status, entity: company,
-      }))
-    })),
   ])
 
   return {
     paymentsToRelease: paymentsToRelease.flat(),
     paymentsToReleaseTotal: paymentsToReleaseTotal.reduce((s, n) => s + n, 0),
     journalEntriesPending: journalEntriesPending.flat(),
-    apReconciliation: apReconciliation.flat(),
   }
 }
 
 // ── Alerts ────────────────────────────────────────────────────────────────────
 
-function buildAlerts(overdue: OverdueReceivables): FinanceAlert[] {
+const LOW_CASH_THRESHOLD = 2_000_000 // ₹20L — matches the design template's critical liquidity alert
+
+function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpBaseUrl: string): FinanceAlert[] {
   const alerts: FinanceAlert[] = []
 
   if (overdue.over90 > 0) {
     alerts.push({
       level: 'red',
-      message: `${new Intl.NumberFormat('en-IN').format(Math.round(overdue.over90))} overdue 90+ days across ${overdue.over90Count} invoice${overdue.over90Count === 1 ? '' : 's'}. Immediate escalation required.`,
+      title: `${rupees(overdue.over90)} overdue 90+ days`,
+      subtitle: `Across ${overdue.over90Count} invoice${overdue.over90Count === 1 ? '' : 's'}. Immediate escalation required.`,
+      entityLabel: 'Group',
+      link: erpBaseUrl ? `${erpBaseUrl}/app/query-report/Accounts Receivable` : undefined,
+    })
+  }
+
+  if (cashBank.total < LOW_CASH_THRESHOLD) {
+    alerts.push({
+      level: 'red',
+      title: `Group cash balance below ${rupees(LOW_CASH_THRESHOLD)}`,
+      subtitle: 'Critical liquidity threshold breached.',
+      entityLabel: 'Group',
+      link: erpBaseUrl ? `${erpBaseUrl}/app/query-report/Cash Flow` : undefined,
     })
   }
 
   alerts.push({
     level: 'amber',
-    message: 'GST / TDS statutory due-date alerts are not shown.',
-    reason: 'No statutory due-date source exists yet (no GST filing calendar or TDS deposit schedule in ERPNext for this project). Raised as an open question in the architecture decisions; needs a client-confirmed source before this can be computed.',
+    title: 'GST / TDS statutory due-date alerts are not shown',
+    subtitle: 'No statutory due-date source exists yet.',
+    entityLabel: null,
+    reason: 'No GST filing calendar or TDS deposit schedule exists in ERPNext for this project. Raised as an open question in the architecture decisions; needs a client-confirmed source before this can be computed.',
   })
 
   return alerts
@@ -694,11 +640,13 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
     getPoApprovalQueue(companies),
   ])
 
+  const erpBaseUrl = (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, '')
+
   return {
     syncedAt: new Date().toISOString(),
-    erpBaseUrl: (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, ''),
+    erpBaseUrl,
     entities: companies,
-    alerts: buildAlerts(overdueReceivables),
+    alerts: buildAlerts(overdueReceivables, cashBank, erpBaseUrl),
     cashBank,
     revenue,
     overdueReceivables,

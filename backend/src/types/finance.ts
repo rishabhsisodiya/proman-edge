@@ -151,23 +151,10 @@ export interface JournalEntryPending {
   entity: string
 }
 
-export interface ApReconciliationItem {
-  source: string
-  item: string
-  party: string
-  partyType: string
-  amount: number
-  daysOut: number
-  aging: string
-  status: string
-  entity: string
-}
-
 export interface ActionQueue {
   paymentsToRelease: UnpaidInvoice[]
   paymentsToReleaseTotal: number   // true count — paymentsToRelease is capped at 100/company for display
   journalEntriesPending: JournalEntryPending[]
-  apReconciliation: ApReconciliationItem[]
 }
 
 // ── W-FIN-08 Approval Queue — Purchase Orders ───────────────────────────────
@@ -186,8 +173,11 @@ export interface PoApprovalItem {
 
 export interface FinanceAlert {
   level: 'red' | 'amber'
-  message: string
-  reason?: string   // present when part of the alert could not be computed (e.g. statutory due dates)
+  title: string
+  subtitle: string
+  entityLabel: string | null   // "Group" for group-level figures, an entity name, or null
+  link?: string                 // deep link into ERPNext, if computable
+  reason?: string               // present when part of the alert could not be computed (e.g. statutory due dates)
 }
 
 // ── Write-back action results (Release / Approve PO / Submit JE) ────────────

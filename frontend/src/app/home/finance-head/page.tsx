@@ -143,9 +143,9 @@ function DebtorBar({ debtor }: { debtor: TopDebtor }) {
 
 const URGENCY_COLOR = (daysAway: number) => daysAway <= 1 ? { bg: RED_BG, fg: RED } : daysAway <= 5 ? { bg: AMBER_BG, fg: AMBER } : { bg: BG, fg: NAVY }
 
-const AQ_ERP_PATH = ['/app/purchase-invoice', '/app/journal-entry', '/app/payment-entry'] as const
+const AQ_ERP_PATH = ['/app/purchase-invoice', '/app/journal-entry'] as const
 
-function aqErpLinkFor(base: string, tab: 0 | 1 | 2, entityLabel: string | null): string {
+function aqErpLinkFor(base: string, tab: 0 | 1, entityLabel: string | null): string {
   const path = AQ_ERP_PATH[tab]
   const match = entityLabel ? ENTITY_MATCH[entityLabel] : undefined
   const params = new URLSearchParams()
@@ -161,26 +161,37 @@ function aqErpLinkFor(base: string, tab: 0 | 1 | 2, entityLabel: string | null):
     params.set('is_return', '0')
     params.set('outstanding_amount', JSON.stringify(['>', '0']))
     params.set('posting_date', JSON.stringify(['>=', twelveMonthsAgo]))
-  } else if (tab === 1) {
+  } else {
     // Mirrors: docstatus=0 (draft), posting_date < today, total_debit > 1L
     params.set('docstatus', '0')
     params.set('posting_date', JSON.stringify(['<', new Date().toISOString().slice(0, 10)]))
     params.set('total_debit', JSON.stringify(['>', '100000']))
-  } else {
-    // AP Reconciliation combines 3 doctypes (Payment Entry / Purchase Order / Purchase Invoice)
-    // via a UNION — a single list-view link can only represent ONE of them. This shows the
-    // Payment Entry slice (docstatus=1, payment_type=Pay, unallocated>0, >30 days old), which is
-    // the largest of the three sources — Purchase Order / Purchase Invoice rows aren't reachable
-    // from this link at all.
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
-    params.set('docstatus', '1')
-    params.set('payment_type', 'Pay')
-    params.set('unallocated_amount', JSON.stringify(['>', '0']))
-    params.set('posting_date', JSON.stringify(['<', thirtyDaysAgo]))
   }
 
   const qs = params.toString()
   return `${base}${path}${qs ? `?${qs}` : ''}`
+}
+
+// Builds a "View all" link for a card, adding a company filter if a real entity is selected.
+// pathWithQuery may already contain its own query string (e.g. the AP ageing-bucket params).
+function cardErpLink(base: string, pathWithQuery: string, entityLabel: string | null): string {
+  const match = entityLabel ? ENTITY_MATCH[entityLabel] : undefined
+  if (!match) return `${base}${pathWithQuery}`
+  const sep = pathWithQuery.includes('?') ? '&' : '?'
+  return `${base}${pathWithQuery}${sep}company=${encodeURIComponent(match)}`
+}
+
+function ViewAllBottom({ href }: { href: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
+      <a href={href} target="_blank" rel="noreferrer" style={{
+        fontSize: 10, fontWeight: 700, color: NAVY, border: `1px solid ${BORDER}`, background: '#fff',
+        padding: '4px 10px', borderRadius: 99, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4,
+      }}>
+        <i className="ti ti-external-link" style={{ fontSize: 13 }} />View all
+      </a>
+    </div>
+  )
 }
 
 function groupInvoicesByDate(rows: PayablesInvoiceRow[]) {
@@ -375,7 +386,7 @@ export default function FinanceHeadPage() {
   const [payEntity, setPayEntity] = useState<string | null>(null)
   const [poEntity, setPoEntity]   = useState<string | null>(null)
   const [aqEntity, setAqEntity]   = useState<string | null>(null)
-  const [aqTab, setAqTab]         = useState<0 | 1 | 2>(0)
+  const [aqTab, setAqTab]         = useState<0 | 1>(0)
   const [revPeriod, setRevPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gstPeriod, setGstPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gmPeriod, setGmPeriod]   = useState<'M' | 'Q' | 'Y'>('M')
@@ -496,8 +507,7 @@ export default function FinanceHeadPage() {
   const poApprovalResult = filterByLabel(data.poApprovalQueue, poEntity)
   const paymentsResult = filterByLabel(data.actionQueue.paymentsToRelease, aqEntity)
   const journalsResult = filterByLabel(data.actionQueue.journalEntriesPending, aqEntity)
-  const apReconResult  = filterByLabel(data.actionQueue.apReconciliation, aqEntity)
-  const aqResult = aqTab === 0 ? paymentsResult : aqTab === 1 ? journalsResult : apReconResult
+  const aqResult = aqTab === 0 ? paymentsResult : journalsResult
 
   const bucketData = bucketsFor(rcvEntity)
   const payGrouped = groupInvoicesByDate(payInvoicesResult.rows)
@@ -630,7 +640,8 @@ export default function FinanceHeadPage() {
                       <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 6px', borderRadius: 7, fontSize: 11, color: INK }}>
                         <i className={`ti ${a.level === 'red' ? 'ti-alert-octagon' : 'ti-alert-triangle'}`} style={{ fontSize: 15, color: a.level === 'red' ? RED : AMBER, flexShrink: 0, marginTop: 1 }} />
                         <div>
-                          <div style={{ lineHeight: 1.4 }}>{a.message}</div>
+                          <div style={{ lineHeight: 1.4, fontWeight: 700 }}>{a.title}</div>
+                          <div style={{ lineHeight: 1.4, color: INK2 }}>{a.subtitle}</div>
                           {a.reason && <div style={{ fontSize: 9.5, color: INK3, marginTop: 2, fontStyle: 'italic' }}>{a.reason}</div>}
                         </div>
                       </div>
@@ -642,21 +653,35 @@ export default function FinanceHeadPage() {
           </div>
         </div>
 
-        {/* Alert banner */}
-        {data.alerts.map((a, i) => (
-          <div key={i} style={{
-            background: a.level === 'red' ? RED_BG : AMBER_BG,
-            border: `1px solid ${a.level === 'red' ? '#E4B4B4' : '#F2DCAE'}`,
-            borderRadius: 10, padding: '9px 14px', display: 'flex', flexDirection: 'column', gap: 2,
-            fontSize: 12, color: a.level === 'red' ? RED : AMBER,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <i className={`ti ${a.level === 'red' ? 'ti-alert-octagon' : 'ti-alert-triangle'}`} style={{ fontSize: 17, flexShrink: 0 }} />
-              <span>{a.message}</span>
-            </div>
-            {a.reason && <div style={{ fontSize: 10.5, marginLeft: 26, opacity: .85 }}><strong>Why:</strong> {a.reason}</div>}
-          </div>
-        ))}
+        {/* Alerts */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {data.alerts.map((a, i) => {
+            const Wrapper = a.link ? 'a' : 'div'
+            return (
+              <Wrapper key={i} {...(a.link ? { href: a.link, target: '_blank', rel: 'noreferrer' } : {})} style={{
+                background: a.level === 'red' ? RED_BG : AMBER_BG,
+                border: `1px solid ${a.level === 'red' ? '#E4B4B4' : '#F2DCAE'}`,
+                borderRadius: 10, padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 9,
+                fontSize: 11, lineHeight: 1.45, color: a.level === 'red' ? RED : AMBER,
+                textDecoration: 'none', cursor: a.link ? 'pointer' : 'default',
+              }}>
+                <i className={`ti ${a.level === 'red' ? 'ti-alert-octagon' : 'ti-alert-triangle'}`} style={{ fontSize: 16, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 700, display: 'block', marginBottom: 2 }}>{a.title}</span>
+                  <span style={{ color: INK, opacity: .82 }}>{a.subtitle}</span>
+                  {a.reason && <div style={{ fontSize: 10.5, color: INK, opacity: .82, marginTop: 2 }}><strong>Why:</strong> {a.reason}</div>}
+                </div>
+                {a.entityLabel && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase',
+                    padding: '3px 9px', borderRadius: 99, border: '1px solid currentColor', whiteSpace: 'nowrap', flexShrink: 0,
+                  }}>{a.entityLabel}</span>
+                )}
+                {a.link && <i className="ti ti-external-link" style={{ fontSize: 14, opacity: .55, flexShrink: 0 }} />}
+              </Wrapper>
+            )
+          })}
+        </div>
 
         {/* KPI band */}
         <div style={{ background: '#1E2352', borderRadius: 14, padding: '15px 16px', display: 'flex', flexDirection: 'column', gap: 11 }}>
@@ -665,8 +690,10 @@ export default function FinanceHeadPage() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 11 }}>
             <KpiTile label="Cash & Bank (Group)" value={fmtMoney(data.cashBank.total)} sub={`${data.cashBank.changeVs7d >= 0 ? '+' : ''}${fmtMoney(data.cashBank.changeVs7d)} vs last week`} accent={data.cashBank.changeVs7d >= 0 ? GREEN : AMBER} spark={data.cashBank.spark} />
-            <KpiTile label="Overdue Receivables" value={fmtMoney(data.overdueReceivables.total)} sub={`${fmtMoney(data.overdueReceivables.over90)} > 90 days (${data.overdueReceivables.over90Count})`} accent={RED} negative spark={data.overdueReceivables.spark} />
-            <KpiTile label="Payables Due This Week" value={fmtMoney(data.payablesDue7d.total)} sub={`${data.payablesDue7d.vendors} vendor${data.payablesDue7d.vendors === 1 ? '' : 's'}${data.payablesDue7d.lastDueDate ? ` — due by ${fmtDate(data.payablesDue7d.lastDueDate)}` : ''}`} accent={AMBER} spark={data.payablesDue7d.spark} />
+            <KpiTile label="Overdue Receivables" value={fmtMoney(data.overdueReceivables.total)} sub={`${fmtMoney(data.overdueReceivables.over90)} > 90 days (${data.overdueReceivables.over90Count})`} accent={RED} negative spark={data.overdueReceivables.spark}
+              viewAllHref={data.erpBaseUrl ? `${data.erpBaseUrl}/app/query-report/Accounts Receivable?ageing_based_on=Due Date&range1=30&range2=60&range3=90&range4=120` : undefined} />
+            <KpiTile label="Payables Due This Week" value={fmtMoney(data.payablesDue7d.total)} sub={`${data.payablesDue7d.vendors} vendor${data.payablesDue7d.vendors === 1 ? '' : 's'}${data.payablesDue7d.lastDueDate ? ` — due by ${fmtDate(data.payablesDue7d.lastDueDate)}` : ''}`} accent={AMBER} spark={data.payablesDue7d.spark}
+              viewAllHref={data.erpBaseUrl ? `${data.erpBaseUrl}/app/query-report/Accounts Payable?ageing_based_on=Due Date&range1=7&range2=14&range3=30&range4=60` : undefined} />
             <KpiTile
               label={<>Revenue <span style={{ fontWeight: 400 }}>{revStat.periodLabel}</span></>}
               value={fmtMoney(revStat.total)} sub="vs target — awaiting ERP setup" accent={AMBER} spark={data.revenue.spark}
@@ -763,11 +790,12 @@ export default function FinanceHeadPage() {
                   : debtorsResult.rows.filter(d => d.buckets.length > 0).slice(0, 10).map(d => <DebtorBar key={d.customer + d.entity} debtor={d} />)
               }
               <EntityFilterBar active={rcvEntity} onSelect={setRcvEntity} />
+              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Receivable', rcvEntity)} />}
             </Card>
           </div>
 
           <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Card title="Approval Queue — Purchase Orders" icon="ti-checklist" right={
+            <Card title="Approval Queue" icon="ti-checklist" right={
               <span style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 9px', borderRadius: 99, background: RED_BG, color: RED }}>
                 {poApprovalResult.rows.length} pending
               </span>
@@ -798,9 +826,10 @@ export default function FinanceHeadPage() {
                   ))
               }
               <EntityFilterBar active={poEntity} onSelect={setPoEntity} />
+              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/purchase-order?status=Draft&workflow_state=PM Approval', poEntity)} />}
             </Card>
 
-            <Card title="Revenue vs Budget" icon="ti-target">
+            <Card title="Revenue vs Target" icon="ti-target">
               <BlockedState reason={data.revenueVsTarget.reason} />
             </Card>
           </div>
@@ -829,6 +858,7 @@ export default function FinanceHeadPage() {
                     })
               }
               <EntityFilterBar active={payEntity} onSelect={setPayEntity} />
+              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Payable?ageing_based_on=Due Date&range1=14&range2=30&range3=60&range4=90', payEntity)} />}
             </Card>
           </div>
 
@@ -842,10 +872,10 @@ export default function FinanceHeadPage() {
               </a>
             }>
               <div style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${BORDER}`, marginBottom: 4 }}>
-                {(['Payments to Release', 'Journal Entries', 'AP Reconciliation'] as const).map((label, i) => {
-                  const count = i === 0 ? data.actionQueue.paymentsToReleaseTotal : i === 1 ? data.actionQueue.journalEntriesPending.length : data.actionQueue.apReconciliation.length
+                {(['Payments to Release', 'Journal Entries'] as const).map((label, i) => {
+                  const count = i === 0 ? data.actionQueue.paymentsToReleaseTotal : data.actionQueue.journalEntriesPending.length
                   return (
-                    <button key={label} onClick={() => setAqTab(i as 0 | 1 | 2)} style={{
+                    <button key={label} onClick={() => setAqTab(i as 0 | 1)} style={{
                       fontSize: 10, fontWeight: 700, padding: '5px 9px', border: 'none', background: 'none',
                       color: aqTab === i ? NAVY : INK2, borderBottom: `2px solid ${aqTab === i ? ORANGE : 'transparent'}`, cursor: 'pointer',
                       display: 'flex', alignItems: 'center', gap: 5, marginBottom: -1,
@@ -914,20 +944,6 @@ export default function FinanceHeadPage() {
                             ))}
                           </tbody>
                         </>}
-                        {aqTab === 2 && <>
-                          <AqThead cols={['Party', 'Type', 'Amount', 'Days Outstanding', 'Status']} />
-                          <tbody>
-                            {apReconResult.rows.slice(0, 10).map((r, i) => (
-                              <tr key={r.item + i}>
-                                <AqTd style={{ fontWeight: 700 }}>{r.party}</AqTd>
-                                <AqTd><Pill bg={BG} fg={NAVY}>{r.source}</Pill></AqTd>
-                                <AqTd style={{ fontFamily: 'monospace' }}>{fmtMoney(r.amount)}</AqTd>
-                                <AqTd><Pill bg={r.daysOut > 45 ? RED_BG : AMBER_BG} fg={r.daysOut > 45 ? RED : AMBER}>{r.daysOut}d</Pill></AqTd>
-                                <AqTd style={{ color: INK2 }}>{r.status}</AqTd>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </>}
                       </table>
                     </div>
               }
@@ -940,8 +956,8 @@ export default function FinanceHeadPage() {
   )
 }
 
-function KpiTile({ label, value, sub, accent, negative, spark, toggle }: {
-  label: React.ReactNode; value: string; sub: string; accent: string; negative?: boolean; spark: SparkPoint[]; toggle?: React.ReactNode
+function KpiTile({ label, value, sub, accent, negative, spark, toggle, viewAllHref }: {
+  label: React.ReactNode; value: string; sub: string; accent: string; negative?: boolean; spark: SparkPoint[]; toggle?: React.ReactNode; viewAllHref?: string
 }) {
   return (
     <div style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)', borderTop: `3px solid ${accent}`, borderRadius: 10, padding: '12px 13px' }}>
@@ -951,6 +967,17 @@ function KpiTile({ label, value, sub, accent, negative, spark, toggle }: {
       <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 23, color: negative ? '#FFB4B4' : '#fff' }}>{value}</div>
       <div style={{ fontSize: 10, color: '#A9C2DC', marginTop: 8 }}>{sub}</div>
       <Sparkline points={spark} />
+      {viewAllHref && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <a href={viewAllHref} target="_blank" rel="noreferrer" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 11, fontSize: 10, fontWeight: 700,
+            color: '#A9C2DC', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)',
+            borderRadius: 99, padding: '4px 10px', textDecoration: 'none',
+          }}>
+            <i className="ti ti-external-link" style={{ fontSize: 12 }} />View all
+          </a>
+        </div>
+      )}
     </div>
   )
 }
