@@ -145,31 +145,12 @@ const URGENCY_COLOR = (daysAway: number) => daysAway <= 1 ? { bg: RED_BG, fg: RE
 
 const AQ_ERP_PATH = ['/app/purchase-invoice', '/app/journal-entry'] as const
 
+// Per Shivam's v3 doc: bare paths, no extra filters — just the entity's site/company.
 function aqErpLinkFor(base: string, tab: 0 | 1, entityLabel: string | null): string {
   const path = AQ_ERP_PATH[tab]
   const match = entityLabel ? ENTITY_MATCH[entityLabel] : undefined
-  const params = new URLSearchParams()
-  if (match) params.set('company', match)
-
-  if (tab === 0) {
-    // Mirrors the dashboard's own filter as closely as Frappe's list-view URL filters allow:
-    // docstatus, is_return, outstanding_amount > 0, posting_date within the last 12 months.
-    // NOT reproducible here: "fully unpaid" (outstanding_amount >= grand_total) is a field-to-field
-    // comparison Frappe list filters can't express — this link is a superset (includes partially-paid too).
-    const twelveMonthsAgo = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10)
-    params.set('docstatus', '1')
-    params.set('is_return', '0')
-    params.set('outstanding_amount', JSON.stringify(['>', '0']))
-    params.set('posting_date', JSON.stringify(['>=', twelveMonthsAgo]))
-  } else {
-    // Mirrors: docstatus=0 (draft), posting_date < today, total_debit > 1L
-    params.set('docstatus', '0')
-    params.set('posting_date', JSON.stringify(['<', new Date().toISOString().slice(0, 10)]))
-    params.set('total_debit', JSON.stringify(['>', '100000']))
-  }
-
-  const qs = params.toString()
-  return `${base}${path}${qs ? `?${qs}` : ''}`
+  const qs = match ? `?company=${encodeURIComponent(match)}` : ''
+  return `${base}${path}${qs}`
 }
 
 // Builds a "View all" link for a card, adding a company filter if a real entity is selected.
@@ -691,17 +672,17 @@ export default function FinanceHeadPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 11 }}>
             <KpiTile label="Cash & Bank (Group)" value={fmtMoney(data.cashBank.total)} sub={`${data.cashBank.changeVs7d >= 0 ? '+' : ''}${fmtMoney(data.cashBank.changeVs7d)} vs last week`} accent={data.cashBank.changeVs7d >= 0 ? GREEN : AMBER} spark={data.cashBank.spark} />
             <KpiTile label="Overdue Receivables" value={fmtMoney(data.overdueReceivables.total)} sub={`${fmtMoney(data.overdueReceivables.over90)} > 90 days (${data.overdueReceivables.over90Count})`} accent={RED} negative spark={data.overdueReceivables.spark}
-              viewAllHref={data.erpBaseUrl ? `${data.erpBaseUrl}/app/query-report/Accounts Receivable?ageing_based_on=Due Date&range1=30&range2=60&range3=90&range4=120` : undefined} />
+              viewAllHref={data.erpBaseUrl ? `${data.erpBaseUrl}/app/query-report/Accounts Receivable` : undefined} />
             <KpiTile label="Payables Due This Week" value={fmtMoney(data.payablesDue7d.total)} sub={`${data.payablesDue7d.vendors} vendor${data.payablesDue7d.vendors === 1 ? '' : 's'}${data.payablesDue7d.lastDueDate ? ` — due by ${fmtDate(data.payablesDue7d.lastDueDate)}` : ''}`} accent={AMBER} spark={data.payablesDue7d.spark}
-              viewAllHref={data.erpBaseUrl ? `${data.erpBaseUrl}/app/query-report/Accounts Payable?ageing_based_on=Due Date&range1=7&range2=14&range3=30&range4=60` : undefined} />
+              viewAllHref={data.erpBaseUrl ? `${data.erpBaseUrl}/app/query-report/Accounts Payable` : undefined} />
             <KpiTile
               label={<>Revenue <span style={{ fontWeight: 400 }}>{revStat.periodLabel}</span></>}
-              value={fmtMoney(revStat.total)} sub="vs target — awaiting ERP setup" accent={AMBER} spark={data.revenue.spark}
+              value={fmtMoney(revStat.total)} sub="vs target — awaiting ERP setup" accent={AMBER} spark={data.revenue.spark[revPeriod]}
               toggle={<PeriodTabs period={revPeriod} onChange={setRevPeriod} />}
             />
             <KpiTile
               label={<>GST Liability <span style={{ fontWeight: 400 }}>{gstStat.periodLabel}</span></>}
-              value={fmtMoney(gstStat.total)} sub="Output tax" accent={RED} negative spark={data.gstLiability.spark}
+              value={fmtMoney(gstStat.total)} sub="Output tax" accent={RED} negative spark={data.gstLiability.spark[gstPeriod]}
               toggle={<PeriodTabs period={gstPeriod} onChange={setGstPeriod} />}
             />
           </div>
@@ -826,7 +807,7 @@ export default function FinanceHeadPage() {
                   ))
               }
               <EntityFilterBar active={poEntity} onSelect={setPoEntity} />
-              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/purchase-order?status=Draft&workflow_state=PM Approval', poEntity)} />}
+              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/purchase-order?status=Draft&workflow_state=Awaiting AM Approval', poEntity)} />}
             </Card>
 
             <Card title="Revenue vs Target" icon="ti-target">
@@ -858,7 +839,7 @@ export default function FinanceHeadPage() {
                     })
               }
               <EntityFilterBar active={payEntity} onSelect={setPayEntity} />
-              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Payable?ageing_based_on=Due Date&range1=14&range2=30&range3=60&range4=90', payEntity)} />}
+              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Payable', payEntity)} />}
             </Card>
           </div>
 

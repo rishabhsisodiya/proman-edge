@@ -43,7 +43,7 @@ export interface Revenue {
   Q: PeriodStat
   Y: PeriodStat
   targetAvailable: false   // blocked — Decision 4 (Revenue Target doctype)
-  spark: SparkPoint[]
+  spark: { M: SparkPoint[]; Q: SparkPoint[]; Y: SparkPoint[] }   // real per-period trend, follows the M/Q/Y toggle
 }
 
 // ── W-FIN-03 Overdue receivables ─────────────────────────────────────────────
@@ -82,7 +82,7 @@ export interface GstLiability {
   M: PeriodStat
   Q: PeriodStat
   Y: PeriodStat
-  spark: SparkPoint[]
+  spark: { M: SparkPoint[]; Q: SparkPoint[]; Y: SparkPoint[] }
 }
 
 // ── W-FIN-12 Gross Margin (blended — Decision 5 resolved by Shivam) ─────────

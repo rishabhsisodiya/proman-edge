@@ -5,7 +5,7 @@ import { getGmTargetPct } from './financeSettingsService'
 import { rupees } from '../lib/format'
 import type {
   FinanceHomepageData, CashBank, CashBankAccount, EntityAmountWithTrend,
-  Revenue, PeriodStat, Period,
+  Revenue, PeriodStat, Period, SparkPoint,
   OverdueReceivables, ReceivablesAgeing, AgeingBucket, TopDebtor,
   GstLiability, PayablesDue, PayablesInvoiceRow, ActionQueue,
   UnpaidInvoice, JournalEntryPending, FinanceAlert,
@@ -49,6 +49,41 @@ export function periodRange(period: Period, asOf: Date = new Date()): { start: s
   // Y
   const start = new Date(fy, 3, 1)
   return { start: iso(start), end, label: 'YTD' }
+}
+
+// Last `count` calendar periods (M/Q/Y) ending at today — for the trend sparklines that
+// follow the M/Q/Y toggle (per Shivam's v3 doc: calendar months/quarters/years, not fiscal).
+const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function trendBuckets(period: Period, count = 6): { start: string; end: string; label: string }[] {
+  const now = new Date()
+  const buckets: { start: string; end: string; label: string }[] = []
+
+  if (period === 'M') {
+    for (let i = count - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const isCurrent = i === 0
+      const end = isCurrent ? iso(now) : iso(new Date(d.getFullYear(), d.getMonth() + 1, 0))
+      buckets.push({ start: iso(d), end, label: MONTH_LABELS[d.getMonth()] })
+    }
+  } else if (period === 'Q') {
+    const curQStartMonth = Math.floor(now.getMonth() / 3) * 3
+    for (let i = count - 1; i >= 0; i--) {
+      const qStart = new Date(now.getFullYear(), curQStartMonth - i * 3, 1)
+      const isCurrent = i === 0
+      const end = isCurrent ? iso(now) : iso(new Date(qStart.getFullYear(), qStart.getMonth() + 3, 0))
+      const q = Math.floor(qStart.getMonth() / 3) + 1
+      buckets.push({ start: iso(qStart), end, label: `Q${q}` })
+    }
+  } else {
+    for (let i = count - 1; i >= 0; i--) {
+      const yStart = new Date(now.getFullYear() - i, 0, 1)
+      const isCurrent = i === 0
+      const end = isCurrent ? iso(now) : iso(new Date(yStart.getFullYear(), 11, 31))
+      buckets.push({ start: iso(yStart), end, label: String(yStart.getFullYear()) })
+    }
+  }
+  return buckets
 }
 
 // ── W-FIN-01 / 06 — Cash & Bank ──────────────────────────────────────────────
@@ -145,13 +180,28 @@ async function getPeriodStat(
   return { total: byEntity.reduce((s, e) => s + e.value, 0), byEntity, periodLabel: label }
 }
 
+// Real per-period trend (last 6 M/Q/Y buckets), reusing the same total function the KPI
+// itself uses — so the sparkline is always consistent with the number it sits under.
+async function getTrendSpark(
+  companies: string[],
+  totalFn: (companies: string[], start: string, end: string) => Promise<number>,
+): Promise<{ M: SparkPoint[]; Q: SparkPoint[]; Y: SparkPoint[] }> {
+  async function oneperiod(period: Period): Promise<SparkPoint[]> {
+    const buckets = trendBuckets(period)
+    return Promise.all(buckets.map(async b => ({ label: b.label, value: await totalFn(companies, b.start, b.end) })))
+  }
+  const [M, Q, Y] = await Promise.all([oneperiod('M'), oneperiod('Q'), oneperiod('Y')])
+  return { M, Q, Y }
+}
+
 async function getRevenue(companies: string[]): Promise<Revenue> {
-  const [M, Q, Y] = await Promise.all([
+  const [M, Q, Y, spark] = await Promise.all([
     getPeriodStat(companies, 'M', getRevenueTotalForCompanies),
     getPeriodStat(companies, 'Q', getRevenueTotalForCompanies),
     getPeriodStat(companies, 'Y', getRevenueTotalForCompanies),
+    getTrendSpark(companies, getRevenueTotalForCompanies),
   ])
-  return { M, Q, Y, targetAvailable: false, spark: getFinanceSparkline('revenueMtd') }
+  return { M, Q, Y, targetAvailable: false, spark }
 }
 
 // ── W-FIN-03 — Overdue receivables (net, via Payment Ledger Entry) ──────────
@@ -344,12 +394,13 @@ export async function getGstTotalForCompanies(companies: string[], start: string
 }
 
 async function getGstLiability(companies: string[]): Promise<GstLiability> {
-  const [M, Q, Y] = await Promise.all([
+  const [M, Q, Y, spark] = await Promise.all([
     getPeriodStat(companies, 'M', getGstTotalForCompanies),
     getPeriodStat(companies, 'Q', getGstTotalForCompanies),
     getPeriodStat(companies, 'Y', getGstTotalForCompanies),
+    getTrendSpark(companies, getGstTotalForCompanies),
   ])
-  return { M, Q, Y, spark: getFinanceSparkline('gstLiability') }
+  return { M, Q, Y, spark }
 }
 
 // ── W-FIN-12 — Gross Margin, blended (Decision 5: GM = Direct Income − Direct
@@ -542,7 +593,30 @@ async function getActionQueue(companies: string[]): Promise<ActionQueue> {
 
 const LOW_CASH_THRESHOLD = 2_000_000 // ₹20L — matches the design template's critical liquidity alert
 
-function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpBaseUrl: string): FinanceAlert[] {
+const LOW_CASH_ENTITY_THRESHOLD = 5_000_000 // ₹50L — A-FIN-A1, per-entity warning (dashboard only, no email)
+
+// A-FIN-A3: Payment Entry advances (Supplier/Employee) unallocated > 30 days.
+// Placement resolved (per user, 2026-07): shown as an alert, not a removed Action Queue tab.
+async function getUnreconciledAdvances(companies: string[]): Promise<{ count: number; total: number }> {
+  const perEntity = await Promise.all(companies.map(async company => {
+    const rows = await query<{ cnt: number; total: number | null }>(
+      `SELECT COUNT(*) AS cnt, SUM(pe.unallocated_amount) AS total
+       FROM \`tabPayment Entry\` pe
+       WHERE pe.docstatus = 1 AND pe.payment_type = 'Pay' AND pe.company = ?
+         AND pe.party_type IN ('Supplier', 'Employee')
+         AND pe.unallocated_amount > 0
+         AND pe.posting_date < CURDATE() - INTERVAL 30 DAY`,
+      [company],
+    )
+    return { count: Number(rows[0]?.cnt ?? 0), total: Number(rows[0]?.total ?? 0) }
+  }))
+  return {
+    count: perEntity.reduce((s, e) => s + e.count, 0),
+    total: perEntity.reduce((s, e) => s + e.total, 0),
+  }
+}
+
+async function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpBaseUrl: string, companies: string[]): Promise<FinanceAlert[]> {
   const alerts: FinanceAlert[] = []
 
   if (overdue.over90 > 0) {
@@ -562,6 +636,29 @@ function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpBaseUrl
       subtitle: 'Critical liquidity threshold breached.',
       entityLabel: 'Group',
       link: erpBaseUrl ? `${erpBaseUrl}/app/query-report/Cash Flow` : undefined,
+    })
+  }
+
+  // A-FIN-A1: per-entity cash warning (dashboard-only, no email, no link — just a tile indicator)
+  for (const e of cashBank.byEntity) {
+    if (e.value < LOW_CASH_ENTITY_THRESHOLD) {
+      alerts.push({
+        level: 'amber',
+        title: `${e.entity} cash balance below ${rupees(LOW_CASH_ENTITY_THRESHOLD)}`,
+        subtitle: 'Dashboard warning only — no email sent.',
+        entityLabel: e.entity,
+      })
+    }
+  }
+
+  const advances = await getUnreconciledAdvances(companies)
+  if (advances.count > 0) {
+    alerts.push({
+      level: 'amber',
+      title: `${rupees(advances.total)} in advances unreconciled beyond 30 days`,
+      subtitle: `${advances.count} supplier/employee advance${advances.count === 1 ? '' : 's'} still unallocated.`,
+      entityLabel: 'Group',
+      link: erpBaseUrl ? `${erpBaseUrl}/app/payment-entry` : undefined,
     })
   }
 
@@ -588,7 +685,7 @@ async function getPoApprovalQueue(companies: string[]): Promise<PoApprovalItem[]
           DATEDIFF(CURDATE(), po.transaction_date) AS days_pending
        FROM \`tabPurchase Order\` po
        WHERE po.status = 'Draft' AND po.company = ?
-         AND po.workflow_state LIKE 'Awaiting%'
+         AND po.workflow_state = 'Awaiting AM Approval'
        ORDER BY po.base_grand_total DESC`,
       [company],
     )
@@ -641,12 +738,13 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
   ])
 
   const erpBaseUrl = (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, '')
+  const alerts = await buildAlerts(overdueReceivables, cashBank, erpBaseUrl, companies)
 
   return {
     syncedAt: new Date().toISOString(),
     erpBaseUrl,
     entities: companies,
-    alerts: buildAlerts(overdueReceivables, cashBank, erpBaseUrl),
+    alerts,
     cashBank,
     revenue,
     overdueReceivables,

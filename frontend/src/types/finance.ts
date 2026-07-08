@@ -39,7 +39,7 @@ export interface Revenue {
   Q: PeriodStat
   Y: PeriodStat
   targetAvailable: false
-  spark: SparkPoint[]
+  spark: { M: SparkPoint[]; Q: SparkPoint[]; Y: SparkPoint[] }
 }
 
 export interface OverdueReceivables {
@@ -72,7 +72,7 @@ export interface GstLiability {
   M: PeriodStat
   Q: PeriodStat
   Y: PeriodStat
-  spark: SparkPoint[]
+  spark: { M: SparkPoint[]; Q: SparkPoint[]; Y: SparkPoint[] }
 }
 
 export interface GrossMarginEntity {
