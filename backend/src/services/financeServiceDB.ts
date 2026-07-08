@@ -169,6 +169,22 @@ export async function getRevenueTotalForCompanies(companies: string[], start: st
   return Number(rows[0]?.revenue ?? 0)
 }
 
+// Per Shivam's v3 doc — the NEW 6-month trend query adds `is_return = 0` (the original
+// W-FIN-02 KPI query above does not have it). Kept as a separate function since only the
+// trend was marked as changed — not applied to the KPI value itself unless confirmed.
+async function getRevenueTrendTotalForCompanies(companies: string[], start: string, end: string): Promise<number> {
+  if (!companies.length) return 0
+  const placeholders = companies.map(() => '?').join(',')
+  const rows = await query<{ revenue: number | null }>(
+    `SELECT SUM(base_grand_total) AS revenue
+     FROM \`tabSales Invoice\`
+     WHERE docstatus = 1 AND is_return = 0 AND company IN (${placeholders})
+       AND posting_date BETWEEN ? AND ?`,
+    [...companies, start, end],
+  )
+  return Number(rows[0]?.revenue ?? 0)
+}
+
 async function getPeriodStat(
   companies: string[], period: Period,
   totalFn: (companies: string[], start: string, end: string) => Promise<number>,
@@ -199,7 +215,7 @@ async function getRevenue(companies: string[]): Promise<Revenue> {
     getPeriodStat(companies, 'M', getRevenueTotalForCompanies),
     getPeriodStat(companies, 'Q', getRevenueTotalForCompanies),
     getPeriodStat(companies, 'Y', getRevenueTotalForCompanies),
-    getTrendSpark(companies, getRevenueTotalForCompanies),
+    getTrendSpark(companies, getRevenueTrendTotalForCompanies),
   ])
   return { M, Q, Y, targetAvailable: false, spark }
 }
