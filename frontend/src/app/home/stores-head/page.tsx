@@ -93,13 +93,18 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 // v3: Pick List Pending is a plain 2-state pill — Pending (nothing picked) or
 // Partial (some picked). A fully-picked pick list moves out of Open/Draft
 // status and drops out of this query entirely, so there's no 3rd "Ready" state.
-function pickListStatus(row: PickListRow) {
+// Status column: Pending/Partial stay as pills; a fully-picked pick list gets
+// an "Issue" action button (deep-links to a new Stock Entry for that WO).
+function pickListStatus(row: PickListRow, issueHref: string) {
   if (row.pickedQty <= 0) return <Pill tone="w">Pending</Pill>
-  return <Pill tone="i">Partial</Pill>
+  if (row.pickedQty < row.requiredQty) return <Pill tone="i">Partial</Pill>
+  return <a href={issueHref} target="_blank" rel="noreferrer"><button style={btnOk}>Issue</button></a>
 }
 
 function pickListRowTone(row: PickListRow): 'd' | 'w' | 's' | 'i' {
-  return row.pickedQty <= 0 ? 'w' : 'i'
+  if (row.pickedQty <= 0) return 'w'
+  if (row.pickedQty < row.requiredQty) return 'i'
+  return 's'
 }
 
 // 3px colored left-edge stripe on a row's first cell, matching the template's
@@ -467,10 +472,16 @@ export default function StoresHeadPage() {
             href={erpUrl(`purchase-receipt?docstatus=0&posting_date=${isoToday}`)} />
           <KpiTile label="Picklist Pending" value={String(data.materialIssuesPending.count)} sub="Pending / partial" accent={AMBER}
             href={erpUrl('pick-list?purpose=Material Transfer for Manufacture&status=["in",["Open","Draft"]]')} />
+          {/* Per Shivam's v3 doc: /app/stock-balance (ERPNext's built-in Stock
+              Levels page). Confirmed it loads, though its default sort isn't
+              filtered to below-reorder items specifically — using as given. */}
           <KpiTile label="Stock Below Reorder" value={String(data.stockBelowReorder.belowReorder)} sub={`${data.stockBelowReorder.stockOut} are stock-out`} accent={RED}
-            href={erpUrl('bin')} />
+            href={erpUrl('stock-balance')} />
+          {/* View-all filter matches Shivam's v3 doc verbatim (status NOT IN
+              Completed/Closed/Cancelled) — note this is broader than the KPI's
+              own counted set (which excludes Draft too), per his instruction. */}
           <KpiTile label="Subcontracting Order Pending" value={String(data.subcontractingOrders.count)} sub="Open · transferred · partial" accent={AMBER}
-            href={erpUrl('subcontracting-order?status=["in",["Open","Material Transferred","Partial Material Transferred","Partially Received"]]')} />
+            href={erpUrl('subcontracting-order?status=["not in",["Completed","Closed","Cancelled"]]')} />
         </div>
 
         {/* Zone 3 — Pending GRN | Material issue | Stock alerts */}
@@ -526,8 +537,10 @@ export default function StoresHeadPage() {
                           <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(pickListRowTone(r)) }} title={r.pickListId}>{r.pickListId}</td>
                           <td>{r.workOrder ?? '—'}</td>
                           <td>{fmtDate(r.pickDate)}</td>
-                          <td style={{ fontWeight: 700 }}>{r.requiredQty} nos</td>
-                          <td style={{ overflow: 'visible' }}>{pickListStatus(r)}</td>
+                          <td style={{ fontWeight: 700, paddingRight: 12 }}>{r.requiredQty} nos</td>
+                          <td style={{ overflow: 'visible', paddingLeft: 10, paddingRight: 14 }}>
+                            {pickListStatus(r, erpUrl(`stock-entry/new?purpose=Material Transfer for Manufacture${r.workOrder ? `&work_order=${encodeURIComponent(r.workOrder)}` : ''}`))}
+                          </td>
                         </>
                       ))}
                     />
