@@ -66,7 +66,7 @@ router.post('/po/:id/followup', async (req: Request, res: Response) => {
     if (!comment?.trim()) {
       return res.status(400).json({ success: false, error: 'comment is required' })
     }
-    const result = await logFollowUp(req.params.id, comment.trim())
+    const result = await logFollowUp(req.params.id, comment)
     res.json({ success: true, data: result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

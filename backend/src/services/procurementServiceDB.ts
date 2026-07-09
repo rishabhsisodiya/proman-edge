@@ -786,10 +786,18 @@ export async function returnPO(poName: string, reason: string): Promise<Procurem
   )
 }
 
-export async function logFollowUp(poName: string, comment: string): Promise<ProcurementActionResult> {
+export async function logFollowUp(poName: string, payload: string): Promise<ProcurementActionResult> {
+  let subject = 'Follow-up on Purchase Order'
+  let message = payload
+  try {
+    const parsed = JSON.parse(payload)
+    subject = parsed.subject ?? subject
+    message = parsed.message ?? message
+  } catch { /* plain string fallback */ }
+
   return frappePost<ProcurementActionResult>(
     'proman_edge.api.procurement.log_follow_up',
-    { name: poName, comment },
+    { name: poName, subject, message, send_email: true },
   )
 }
 

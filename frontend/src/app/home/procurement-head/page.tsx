@@ -389,7 +389,7 @@ function OverduePOTracker({ rows, erpBase, onRowClick, onLogFollowUp }: {
   rows: OverduePO[]
   erpBase: string
   onRowClick: (poNo: string) => void
-  onLogFollowUp: (poNo: string) => void
+  onLogFollowUp: (poNo: string, supplier: string, scheduleDate: string) => void
 }) {
   return (
     <Card>
@@ -424,7 +424,7 @@ function OverduePOTracker({ rows, erpBase, onRowClick, onLogFollowUp }: {
                 <Td><ReceiptBar pct={p.perReceived} /></Td>
                 <Td style={{ color: INK2, fontSize: 10 }}>{daysAgo(p.lastFollowup)}</Td>
                 <Td>
-                  <MiniBtn variant="amber" onClick={e => { e.stopPropagation(); onLogFollowUp(p.poNo) }}>Log</MiniBtn>
+                  <MiniBtn variant="amber" onClick={e => { e.stopPropagation(); onLogFollowUp(p.poNo, p.supplier, p.scheduleDate) }}>Log</MiniBtn>
                 </Td>
               </tr>
             ))}
@@ -655,7 +655,7 @@ function ActionQueueCard({ queue, erpBase, onLogGRN, onLogFollowUp }: {
   queue: ActionQueue
   erpBase: string
   onLogGRN:       (poNo: string) => void
-  onLogFollowUp:  (poNo: string) => void
+  onLogFollowUp:  (poNo: string, supplier: string, scheduleDate: string) => void
 }) {
   const [tab, setTab] = useState(0)
 
@@ -743,7 +743,7 @@ function ActionQueueCard({ queue, erpBase, onLogGRN, onLogFollowUp }: {
                   <Td><Tag rag={r.daysOverdue > 7 ? 'red' : 'amber'} label={`${r.daysOverdue}d`} /></Td>
                   <Td style={{ color: INK2, fontSize: 10 }}>{daysAgo(r.lastFollowup)}</Td>
                   <Td>
-                    <MiniBtn variant="navy" onClick={e => { e.stopPropagation(); onLogFollowUp(r.poNo) }}>Log</MiniBtn>
+                    <MiniBtn variant="navy" onClick={e => { e.stopPropagation(); onLogFollowUp(r.poNo, r.supplier, r.scheduleDate) }}>Log</MiniBtn>
                   </Td>
                 </tr>
               ))}
@@ -891,7 +891,7 @@ type DrawerState =
   | { type: 'loading'; poNo: string }
   | { type: 'detail'; po: PODetail }
   | { type: 'return'; poNo: string }
-  | { type: 'followup'; poNo: string }
+  | { type: 'followup'; poNo: string; supplier: string; scheduleDate: string }
 
 function Drawer({ state, erpBase, onClose, onAction, toast }: {
   state: DrawerState
@@ -901,10 +901,22 @@ function Drawer({ state, erpBase, onClose, onAction, toast }: {
   toast: (msg: string) => void
 }) {
   const [returnReason, setReturnReason] = useState('')
-  const [followupText, setFollowupText] = useState('')
+  const [followupSubject, setFollowupSubject] = useState('')
+  const [followupBody, setFollowupBody] = useState('')
   const [busy, setBusy] = useState(false)
 
   const isOpen = state.type !== 'closed'
+
+  // Pre-fill email template when followup drawer opens
+  useEffect(() => {
+    if (state.type !== 'followup') return
+    const { poNo, supplier, scheduleDate } = state
+    const due = scheduleDate ? new Date(scheduleDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
+    setFollowupSubject(`Follow-up: Overdue Purchase Order ${poNo}`)
+    setFollowupBody(
+      `Hi ${supplier},\n\nI am writing to follow up on the status of Purchase Order ${poNo}, which was originally scheduled for delivery on ${due}.\n\nAccording to our system, this order is currently overdue and we have not yet received the shipment. Could you please look into this and provide us with an updated estimated time of arrival (ETA)?\n\nIf there are any issues or delays with fulfilling this order, please let us know as soon as possible so we can plan accordingly.\n\nBest regards,\nPISPL`
+    )
+  }, [state.type === 'followup' ? state.poNo : null])
 
   async function handleAction(action: 'approve' | 'return' | 'followup', extra?: string) {
     if (state.type !== 'detail' && state.type !== 'return' && state.type !== 'followup') return
@@ -1016,18 +1028,28 @@ function Drawer({ state, erpBase, onClose, onAction, toast }: {
 
           {state.type === 'followup' && (
             <>
-              <div style={{ fontSize: 12, color: INK2, marginBottom: 10 }}>
-                Add a follow-up comment for this PO:
+              <div style={{ fontSize: 12, color: INK2, marginBottom: 8 }}>
+                Review and send a follow-up email to the vendor:
               </div>
+              <div style={{ fontSize: 11, color: INK2, marginBottom: 4, fontWeight: 600 }}>Subject</div>
+              <input
+                value={followupSubject}
+                onChange={e => setFollowupSubject(e.target.value)}
+                style={{
+                  width: '100%', fontSize: 12, padding: '7px 10px', marginBottom: 10,
+                  border: `1px solid ${BORDER}`, borderRadius: 8, color: INK,
+                  fontFamily: 'Arial,sans-serif',
+                }}
+              />
+              <div style={{ fontSize: 11, color: INK2, marginBottom: 4, fontWeight: 600 }}>Message</div>
               <textarea
-                value={followupText}
-                onChange={e => setFollowupText(e.target.value)}
-                rows={4}
-                placeholder="e.g. Called vendor, confirmed delivery by 5 Jul…"
+                value={followupBody}
+                onChange={e => setFollowupBody(e.target.value)}
+                rows={10}
                 style={{
                   width: '100%', fontSize: 12, padding: '8px 10px',
                   border: `1px solid ${BORDER}`, borderRadius: 8, color: INK,
-                  fontFamily: 'Arial,sans-serif', resize: 'vertical',
+                  fontFamily: 'Arial,sans-serif', resize: 'vertical', lineHeight: 1.6,
                 }}
               />
             </>
@@ -1067,11 +1089,14 @@ function Drawer({ state, erpBase, onClose, onAction, toast }: {
                 flex: 1, fontSize: 12, fontWeight: 600, padding: 9, borderRadius: 9,
                 cursor: 'pointer', border: `1px solid ${BORDER}`, background: '#fff', color: INK2,
               }}>Cancel</button>
-              <button disabled={busy || !followupText.trim()} onClick={() => handleAction('followup', followupText)} style={{
-                flex: 1, fontSize: 12, fontWeight: 600, padding: 9, borderRadius: 9,
-                cursor: 'pointer', border: `1px solid ${ORANGE}`, background: ORANGE, color: '#fff',
-                opacity: busy || !followupText.trim() ? .5 : 1,
-              }}>Log follow-up</button>
+              <button
+                disabled={busy || !followupSubject.trim() || !followupBody.trim()}
+                onClick={() => handleAction('followup', JSON.stringify({ subject: followupSubject, message: followupBody }))}
+                style={{
+                  flex: 1, fontSize: 12, fontWeight: 600, padding: 9, borderRadius: 9,
+                  cursor: 'pointer', border: `1px solid ${ORANGE}`, background: ORANGE, color: '#fff',
+                  opacity: busy || !followupSubject.trim() || !followupBody.trim() ? .5 : 1,
+                }}>Send email & log</button>
             </>
           )}
         </div>
@@ -1143,12 +1168,13 @@ export default function ProcurementHeadPage() {
 
   const handleAction = useCallback(async (
     poNo: string, action: 'approve' | 'return' | 'followup', extra?: string,
+    meta?: { supplier?: string; scheduleDate?: string },
   ) => {
     if (action === 'return' && !extra) {
       setDrawer({ type: 'return', poNo }); return
     }
     if (action === 'followup' && !extra) {
-      setDrawer({ type: 'followup', poNo }); return
+      setDrawer({ type: 'followup', poNo, supplier: meta?.supplier ?? '', scheduleDate: meta?.scheduleDate ?? '' }); return
     }
 
     let result: ProcurementActionResult
@@ -1361,7 +1387,7 @@ export default function ProcurementHeadPage() {
             rows={data.overduePOs}
             erpBase={erpBase}
             onRowClick={openDrawer}
-            onLogFollowUp={poNo => handleAction(poNo, 'followup')}
+            onLogFollowUp={(poNo, supplier, scheduleDate) => handleAction(poNo, 'followup', undefined, { supplier, scheduleDate })}
           />
           <CriticalShortageTable rows={data.criticalShortages} erpBase={erpBase} />
         </div>
@@ -1396,7 +1422,7 @@ export default function ProcurementHeadPage() {
             }
             else showToast(result.error?.message ?? 'GRN failed')
           }}
-          onLogFollowUp={poNo => handleAction(poNo, 'followup')}
+          onLogFollowUp={(poNo, supplier, scheduleDate) => handleAction(poNo, 'followup', undefined, { supplier, scheduleDate })}
         />
 
         {/* ZONE 6: Expected receipts + Quick actions */}
