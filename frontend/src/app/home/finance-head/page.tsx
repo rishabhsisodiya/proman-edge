@@ -50,6 +50,13 @@ function filterByLabel<T extends { entity: string }>(items: T[], label: string |
   return { rows: items.filter(i => i.entity === match), unavailable: false }
 }
 
+const ENTITY_SHORT_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(ENTITY_MATCH).filter((e): e is [string, string] => !!e[1]).map(([short, full]) => [full, short])
+)
+function shortEntity(name: string): string {
+  return ENTITY_SHORT_LABEL[name] ?? name
+}
+
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
 function Card({ title, icon, right, children }: { title: React.ReactNode; icon: string; right?: React.ReactNode; children: React.ReactNode }) {
@@ -705,7 +712,7 @@ export default function FinanceHeadPage() {
                   <div key={e.entity} style={{ borderRadius: 9, background: BG, overflow: 'hidden' }}>
                     <div onClick={() => setExpandedEntity(expanded ? null : e.entity)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 11px', cursor: 'pointer' }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: NAVY, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <i className={`ti ti-chevron-${expanded ? 'down' : 'right'}`} style={{ fontSize: 12 }} />{e.entity}
+                        <i className={`ti ti-chevron-${expanded ? 'down' : 'right'}`} style={{ fontSize: 12 }} />{shortEntity(e.entity)}
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 9, fontWeight: 700, color: e.changeVs7d >= 0 ? GREEN : RED }}>
@@ -743,7 +750,7 @@ export default function FinanceHeadPage() {
                 const barWidth = e.gmPct === null ? 0 : Math.min(100, e.gmPct * 2.5)
                 return (
                   <div key={e.entity} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: INK, width: 96, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.entity}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: INK, width: 96, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shortEntity(e.entity)}</span>
                     <div style={{ flex: 1, height: 12, background: BG, borderRadius: 99, overflow: 'hidden' }}>
                       <div style={{ width: `${barWidth}%`, height: 12, borderRadius: 99, background: color }} />
                     </div>

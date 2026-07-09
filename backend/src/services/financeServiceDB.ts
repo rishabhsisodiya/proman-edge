@@ -611,6 +611,44 @@ const LOW_CASH_THRESHOLD = 2_000_000 // ₹20L — matches the design template's
 
 const LOW_CASH_ENTITY_THRESHOLD = 5_000_000 // ₹50L — A-FIN-A1, per-entity warning (dashboard only, no email)
 
+// A-FIN-R3 (per v4 doc — final spec, no longer a PROXY): fixed government due dates —
+// GST 20th, TDS 7th, PF 14th of the month. "Released" = a payment JE debits the payable,
+// clearing it, so amount owed > 0 means not released. Fires 2 days before each fixed date.
+const STATUTORY_ACCOUNTS: { pattern: string; label: string; dueDay: number }[] = [
+  { pattern: 'GST Payable%', label: 'GST', dueDay: 20 },
+  { pattern: 'TDS Payable%', label: 'TDS', dueDay: 7 },
+  { pattern: 'PF%',          label: 'PF',  dueDay: 14 },
+]
+
+function daysUntilNextDue(dueDay: number, now: Date = new Date()): number {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  let target = new Date(now.getFullYear(), now.getMonth(), dueDay)
+  if (target < today) target = new Date(now.getFullYear(), now.getMonth() + 1, dueDay)
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000)
+}
+
+async function getStatutoryDuesSoon(companies: string[]): Promise<{ label: string; amount: number; daysUntil: number }[]> {
+  const results: { label: string; amount: number; daysUntil: number }[] = []
+  for (const { pattern, label, dueDay } of STATUTORY_ACCOUNTS) {
+    const daysUntil = daysUntilNextDue(dueDay)
+    if (daysUntil > 2) continue // only check accounts whose fixed due date is within 2 days
+    let total = 0
+    for (const company of companies) {
+      const rows = await query<{ amount: number | null }>(
+        `SELECT ROUND(SUM(gle.credit - gle.debit), 2) AS amount
+         FROM \`tabGL Entry\` gle
+         JOIN \`tabAccount\` a ON a.name = gle.account
+         WHERE a.name LIKE ? AND gle.company = ?
+           AND gle.is_cancelled = 0 AND gle.posting_date <= CURDATE()`,
+        [pattern, company],
+      )
+      total += Number(rows[0]?.amount ?? 0)
+    }
+    if (total > 0) results.push({ label, amount: total, daysUntil })
+  }
+  return results
+}
+
 // A-FIN-A3: Payment Entry advances (Supplier/Employee) unallocated > 30 days.
 // Placement resolved (per user, 2026-07): shown as an alert, not a removed Action Queue tab.
 async function getUnreconciledAdvances(companies: string[]): Promise<{ count: number; total: number }> {
@@ -655,16 +693,15 @@ async function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpB
     })
   }
 
-  // A-FIN-A1: per-entity cash warning (dashboard-only, no email, no link — just a tile indicator)
-  for (const e of cashBank.byEntity) {
-    if (e.value < LOW_CASH_ENTITY_THRESHOLD) {
-      alerts.push({
-        level: 'amber',
-        title: `${e.entity} cash balance below ${rupees(LOW_CASH_ENTITY_THRESHOLD)}`,
-        subtitle: 'Dashboard warning only — no email sent.',
-        entityLabel: e.entity,
-      })
-    }
+  // A-FIN-A1: per-entity cash warning — one consolidated box, comma-separated (per v4 doc: "[NEW]")
+  const lowCashEntities = cashBank.byEntity.filter(e => e.value < LOW_CASH_ENTITY_THRESHOLD)
+  if (lowCashEntities.length > 0) {
+    alerts.push({
+      level: 'amber',
+      title: `Cash balance below ${rupees(LOW_CASH_ENTITY_THRESHOLD)}`,
+      subtitle: lowCashEntities.map(e => e.entity).join(', '),
+      entityLabel: lowCashEntities.length === 1 ? lowCashEntities[0].entity : `${lowCashEntities.length} entities`,
+    })
   }
 
   const advances = await getUnreconciledAdvances(companies)
@@ -678,13 +715,17 @@ async function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpB
     })
   }
 
-  alerts.push({
-    level: 'amber',
-    title: 'GST / TDS statutory due-date alerts are not shown',
-    subtitle: 'No statutory due-date source exists yet.',
-    entityLabel: null,
-    reason: 'No GST filing calendar or TDS deposit schedule exists in ERPNext for this project. Raised as an open question in the architecture decisions; needs a client-confirmed source before this can be computed.',
-  })
+  // A-FIN-R3: real, per v4 doc — fixed statutory due dates, no longer blocked/PROXY
+  const statutoryDues = await getStatutoryDuesSoon(companies)
+  if (statutoryDues.length > 0) {
+    alerts.push({
+      level: 'red',
+      title: statutoryDues.map(d => `${d.label} ${rupees(d.amount)} due in ${d.daysUntil}d`).join(', '),
+      subtitle: 'Statutory payment not yet released.',
+      entityLabel: 'Group',
+      link: erpBaseUrl ? `${erpBaseUrl}/app/payment-entry` : undefined,
+    })
+  }
 
   return alerts
 }
