@@ -64,7 +64,7 @@ async function getSubcontractingOrders(): Promise<SubcontractingOrders> {
   const rows = await query<{ subcontracting_pending: number }>(
     `SELECT COUNT(*) AS subcontracting_pending
      FROM \`tabSubcontracting Order\`
-     WHERE status IN ('Open', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
+     WHERE status IN ('Open', 'Draft', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
   )
   return { count: Number(rows[0]?.subcontracting_pending ?? 0) }
 }
