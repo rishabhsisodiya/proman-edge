@@ -108,7 +108,7 @@ export interface StoresHomepageData {
   grnsPendingToday: { count: number }
   materialIssuesPending: { count: number }
   stockBelowReorder: { belowReorder: number; stockOut: number }
-  subcontractingOrders: { count: number }
+  subcontractingOrders: { count: number; materialTransferred: number }
   pendingGrnList: PendingGrnRow[]
   materialIssueQueue: PickListRow[]
   stockAlerts: StockAlerts
@@ -116,4 +116,5 @@ export interface StoresHomepageData {
   slowMovingStock: SlowMovingStockRow[]
   actionQueue: ActionQueue
   warehouseStockValue: WarehouseStockValueRow[]
+  pickListsOverdue: { count: number }
 }

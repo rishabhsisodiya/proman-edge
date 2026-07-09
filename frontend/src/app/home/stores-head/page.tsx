@@ -285,31 +285,53 @@ export default function StoresHeadPage() {
     }
   }
 
-  // Individual items, used for the bell dropdown list.
+  // ── Alert Triggers (A-STR, per Shivam's v4 doc) — 4 buildable of 5
+  // (A-STR-A3 is blocked: no Pick List workflow state on this ERPNext instance).
   const alerts: { level: 'red' | 'amber'; message: string }[] = []
-  const firstStockOut = data.stockAlerts.stockOutBlockingProduction[0]
-  if (firstStockOut) {
+
+  // A-STR-R1 (red): draft GRN dated today, not submitted by 16:00. Same source
+  // as the W-STR-01 KPI (grnsPendingToday) — just corrected wording, since the
+  // old text ("deliveries due today") described the pre-v3 PO-based logic.
+  if (data.grnsPendingToday.count > 0) {
     alerts.push({
       level: 'red',
-      message: `Stock-out: ${firstStockOut.itemName} — 0 units.${firstStockOut.workOrder ? ` ${firstStockOut.workOrder}` : ''}${firstStockOut.plannedEnd ? ` ends ${fmtDate(firstStockOut.plannedEnd)}.` : ''} Raise PO immediately.`,
+      message: `${data.grnsPendingToday.count} GRN${data.grnsPendingToday.count === 1 ? '' : 's'} dated today not yet submitted.`,
     })
   }
-  if (data.grnsPendingToday.count > 0) {
-    alerts.push({ level: 'amber', message: `${data.grnsPendingToday.count} delivery${data.grnsPendingToday.count === 1 ? '' : 'ies'} due today — GRN${data.grnsPendingToday.count === 1 ? '' : 's'} not yet created.` })
+
+  // A-STR-R2 (red): stock-out on a WO due within 3 days. Section 1 is already
+  // sorted by due date ascending, so the first row is the most urgent one —
+  // only escalate to the banner if it's genuinely within the 3-day window.
+  const firstStockOut = data.stockAlerts.stockOutBlockingProduction[0]
+  const stockOutDaysUntilDue = firstStockOut?.plannedEnd
+    ? Math.round((new Date(firstStockOut.plannedEnd).getTime() - Date.now()) / 86_400_000)
+    : null
+  if (firstStockOut && stockOutDaysUntilDue !== null && stockOutDaysUntilDue <= 3) {
+    alerts.push({
+      level: 'red',
+      message: `Stock-out: ${firstStockOut.itemName} — 0 units.${firstStockOut.workOrder ? ` ${firstStockOut.workOrder}` : ''} due ${fmtDate(firstStockOut.plannedEnd)}. Raise PO immediately.`,
+    })
   }
 
-  // Single combined banner line — matches the template, which folds the
-  // stock-out alert and the GRN-due-today note into one box, pipe-separated.
-  const bannerParts: string[] = []
-  let bannerLevel: 'red' | 'amber' = 'amber'
-  if (firstStockOut) {
-    bannerParts.push(`Stock-out: ${firstStockOut.itemName} — 0 units.${firstStockOut.workOrder ? ` ${firstStockOut.workOrder}` : ''}${firstStockOut.plannedEnd ? ` ends ${fmtDate(firstStockOut.plannedEnd)}.` : ''} Raise PO immediately.`)
-    bannerLevel = 'red'
+  // A-STR-R3 (red): Pick Lists pending/partial beyond the 2-day threshold.
+  if (data.pickListsOverdue.count > 0) {
+    alerts.push({
+      level: 'red',
+      message: `${data.pickListsOverdue.count} pick list${data.pickListsOverdue.count === 1 ? '' : 's'} pending action beyond 2 days.`,
+    })
   }
-  if (data.grnsPendingToday.count > 0) {
-    bannerParts.push(`${data.grnsPendingToday.count} delivery${data.grnsPendingToday.count === 1 ? '' : 'ies'} due today — GRN${data.grnsPendingToday.count === 1 ? '' : 's'} not yet created.`)
+
+  // A-STR-A1 (amber): below reorder, no open PO — reuses W-STR-08 §2 data.
+  if (data.stockAlerts.belowReorderNoOpenPo.length > 0) {
+    alerts.push({
+      level: 'amber',
+      message: `${data.stockAlerts.belowReorderNoOpenPo.length} item${data.stockAlerts.belowReorderNoOpenPo.length === 1 ? '' : 's'} below reorder with no PO raised.`,
+    })
   }
-  const banner = bannerParts.length ? { level: bannerLevel, text: bannerParts.join(' | ') } : null
+
+  const banner = alerts.length
+    ? { level: alerts.some(a => a.level === 'red') ? 'red' as const : 'amber' as const, text: alerts.map(a => a.message).join(' | ') }
+    : null
 
   return (
     <div style={{ minHeight: '100vh', background: BG, fontFamily: "Arial,'Arial Narrow',Helvetica,sans-serif", padding: 12 }}>
@@ -478,9 +500,9 @@ export default function StoresHeadPage() {
           <KpiTile label="Stock Below Reorder" value={String(data.stockBelowReorder.belowReorder)} sub={`${data.stockBelowReorder.stockOut} are stock-out`} accent={RED}
             href={erpUrl('stock-balance')} />
           {/* View-all filter matches Shivam's v3 doc verbatim (status NOT IN
-              Completed/Closed/Cancelled) — note this is broader than the KPI's
-              own counted set (which excludes Draft too), per his instruction. */}
-          <KpiTile label="Subcontracting Order Pending" value={String(data.subcontractingOrders.count)} sub="Open · transferred · partial" accent={AMBER}
+              Completed/Closed/Cancelled). Sub-label = K-04 secondary figure
+              (submitted "Send to Subcontractor" stock entries on open SCOs). */}
+          <KpiTile label="Subcontracting Order Pending" value={String(data.subcontractingOrders.count)} sub={`${data.subcontractingOrders.materialTransferred} material transfers`} accent={AMBER}
             href={erpUrl('subcontracting-order?status=["not in",["Completed","Closed","Cancelled"]]')} />
         </div>
 

@@ -6,7 +6,10 @@ import type {
   SubcontractingOrders, PendingGrnRow, PickListRow, StockAlerts, StockOutAlertRow,
   BelowReorderNoPoRow, ExpectedDeliveryDay, SlowMovingStockRow, ActionQueue,
   CountVarianceRow, GrnRaisedTodayRow, WarehouseStockValueRow, StoresActionResult,
+  PickListsOverdue,
 } from '../types/stores'
+
+const PICK_LIST_OVERDUE_THRESHOLD_DAYS = 2 // A-STR-R3 — configurable per doc, no settings UI yet
 
 // Single site (PISPL) — this DB connection is already scoped to the one
 // manufacturing facility, so unlike Finance there is no company filter / fan-out.
@@ -61,12 +64,26 @@ async function getStockBelowReorder(): Promise<StockBelowReorder> {
 // Replaces "Return Notes Open" (Work Order excess) in v2.
 
 async function getSubcontractingOrders(): Promise<SubcontractingOrders> {
-  const rows = await query<{ subcontracting_pending: number }>(
-    `SELECT COUNT(*) AS subcontracting_pending
-     FROM \`tabSubcontracting Order\`
-     WHERE status IN ('Open', 'Draft', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
-  )
-  return { count: Number(rows[0]?.subcontracting_pending ?? 0) }
+  const [countRows, transferredRows] = await Promise.all([
+    query<{ subcontracting_pending: number }>(
+      `SELECT COUNT(*) AS subcontracting_pending
+       FROM \`tabSubcontracting Order\`
+       WHERE status IN ('Open', 'Draft', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
+    ),
+    // Secondary figure (K-04): submitted "Send to Subcontractor" stock entries
+    // linked to currently-open SCOs — shown under the count.
+    query<{ material_transferred: number }>(
+      `SELECT COUNT(*) AS material_transferred
+       FROM \`tabStock Entry\` se
+       JOIN \`tabSubcontracting Order\` so ON so.name = se.subcontracting_order
+       WHERE se.docstatus = 1 AND se.stock_entry_type = 'Send to Subcontractor'
+         AND so.status IN ('Open', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
+    ),
+  ])
+  return {
+    count: Number(countRows[0]?.subcontracting_pending ?? 0),
+    materialTransferred: Number(transferredRows[0]?.material_transferred ?? 0),
+  }
 }
 
 // ── W-STR-06 — Pending GRN list ───────────────────────────────────────────────
@@ -141,9 +158,12 @@ async function getStockOutBlockingProduction(): Promise<StockOutAlertRow[]> {
         woi.item_code,
         MAX(it.item_name) AS item_name,
         SUBSTRING_INDEX(
-            GROUP_CONCAT(DISTINCT wo.name ORDER BY wo.planned_end_date ASC), ',', 1
+            GROUP_CONCAT(DISTINCT wo.name ORDER BY COALESCE(wo.planned_end_date, wo.planned_start_date) ASC), ',', 1
         ) AS work_order,
-        MIN(wo.planned_end_date) AS planned_end,
+        -- planned_end_date is NULL on PISPL WOs (not maintained) — fall back to
+        -- planned_start_date per the doc's own note, also needed for A-STR-R2's
+        -- "due within 3 days" threshold.
+        MIN(COALESCE(wo.planned_end_date, wo.planned_start_date)) AS planned_end,
         SUM(woi.required_qty - woi.transferred_qty) AS needed_qty
      FROM \`tabWork Order Item\` woi
      JOIN \`tabWork Order\` wo ON wo.name = woi.parent
@@ -363,6 +383,19 @@ async function getWarehouseStockValue(): Promise<WarehouseStockValueRow[]> {
   }))
 }
 
+// ── A-STR-R3 — Pick Lists pending/partial beyond threshold (Alert Trigger) ──
+
+async function getPickListsOverdue(): Promise<PickListsOverdue> {
+  const rows = await query<{ n: number }>(
+    `SELECT COUNT(*) AS n
+     FROM \`tabPick List\` pl
+     WHERE pl.status IN ('Open', 'Draft')
+       AND pl.creation < CURDATE() - INTERVAL ? DAY`,
+    [PICK_LIST_OVERDUE_THRESHOLD_DAYS],
+  )
+  return { count: Number(rows[0]?.n ?? 0) }
+}
+
 // ── Write-backs via Frappe API (proman_edge.api.stores.*) ───────────────────
 // Per Store_Head_SQL_Queries_v3.md: these are "deployed + live-tested" custom
 // whitelisted methods on the ERP side — we only proxy them, no schema/whitelist
@@ -418,7 +451,7 @@ async function computeStoresHomepage(): Promise<StoresHomepageData> {
   const [
     grnsPendingToday, materialIssuesPending, stockBelowReorder, subcontractingOrders,
     pendingGrnList, materialIssueQueue, stockAlerts, expectedDeliveries,
-    slowMovingStock, actionQueue, warehouseStockValue,
+    slowMovingStock, actionQueue, warehouseStockValue, pickListsOverdue,
   ] = await Promise.all([
     getGrnsPendingToday(),
     getMaterialIssuesPending(),
@@ -431,6 +464,7 @@ async function computeStoresHomepage(): Promise<StoresHomepageData> {
     getSlowMovingStock(),
     getActionQueue(),
     getWarehouseStockValue(),
+    getPickListsOverdue(),
   ])
 
   return {
@@ -447,5 +481,6 @@ async function computeStoresHomepage(): Promise<StoresHomepageData> {
     slowMovingStock,
     actionQueue,
     warehouseStockValue,
+    pickListsOverdue,
   }
 }

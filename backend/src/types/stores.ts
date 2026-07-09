@@ -18,6 +18,7 @@ export interface StockBelowReorder {
 
 export interface SubcontractingOrders {
   count: number
+  materialTransferred: number
 }
 
 // ── W-STR-06 Pending GRN list (draft + pending-approval GRNs) ───────────────
@@ -149,6 +150,13 @@ export interface StoresActionResult {
 
 // ── Full homepage payload ─────────────────────────────────────────────────────
 
+// A-STR-R3: Pick Lists (Open/Draft, i.e. not actioned) older than the
+// configurable threshold (default 2 days, per Shivam's doc — hardcoded here
+// since there's no settings UI anywhere in this app yet).
+export interface PickListsOverdue {
+  count: number
+}
+
 export interface StoresHomepageData {
   syncedAt: string
   erpBaseUrl: string
@@ -163,4 +171,5 @@ export interface StoresHomepageData {
   slowMovingStock: SlowMovingStockRow[]
   actionQueue: ActionQueue
   warehouseStockValue: WarehouseStockValueRow[]
+  pickListsOverdue: PickListsOverdue
 }
