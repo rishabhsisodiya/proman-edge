@@ -853,7 +853,7 @@ export default function FinanceHeadPage() {
               </a>
             }>
               <div style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${BORDER}`, marginBottom: 4 }}>
-                {(['Payments to Release', 'Journal Entries'] as const).map((label, i) => {
+                {(['Purchase Invoices to Release', 'Journal Entries'] as const).map((label, i) => {
                   const count = i === 0 ? data.actionQueue.paymentsToReleaseTotal : data.actionQueue.journalEntriesPending.length
                   return (
                     <button key={label} onClick={() => setAqTab(i as 0 | 1)} style={{
