@@ -481,7 +481,7 @@ export default function DispatchHeadPage() {
           </div>
         </div>
 
-        {/* Zone 4 — This week's schedule | Alerts */}
+        {/* Zone 4 — This week's schedule | On-time dispatch trend */}
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'stretch' }}>
           <div style={{ flex: '1 1 420px' }}>
             <Card title="This week's dispatch schedule" icon="ti-calendar" fill
@@ -511,20 +511,23 @@ export default function DispatchHeadPage() {
           </div>
 
           <div style={{ flex: '1 1 420px' }}>
-            <Card title="Alerts" icon="ti-alert-hexagon" fill right={<span style={{ fontSize: 10, color: INK3 }}>A-DISP-01..05</span>}>
-              {alerts.length === 0
-                ? <EmptyState>No active alerts.</EmptyState>
-                : alerts.map((a, i) => (
-                  <div key={i} style={{
-                    display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 8,
-                    background: a.level === 'red' ? RED_BG : AMBER_BG, marginBottom: 6, fontSize: 11,
-                    color: a.level === 'red' ? RED : AMBER,
-                  }}>
-                    <i className={`ti ${a.level === 'red' ? 'ti-alert-octagon' : 'ti-alert-triangle'}`} style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }} />
-                    <span>{a.message}</span>
+            <Card title="On-time dispatch — rolling 3 months" icon="ti-chart-bar" fill right={<span style={{ fontSize: 10, color: INK3 }}>Target 90%</span>}>
+              {data.onTimeDispatch.length === 0
+                ? <EmptyState>No completed dispatches with a promised date in the last 3 months.</EmptyState>
+                : (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 70, position: 'relative' }}>
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: Math.round(70 * 90 / 100), height: 0, borderTop: `2px dashed ${ORANGE}`, opacity: 0.9 }} />
+                    {data.onTimeDispatch.map(o => {
+                      const h = Math.round(70 * o.onTimePct / 100)
+                      const c = o.onTimePct >= 90 ? GREEN : o.onTimePct >= 80 ? AMBER : RED
+                      return <div key={o.month} title={`${o.month}: ${o.onTimePct}%`} style={{ flex: 1, height: h, background: c, borderRadius: '4px 4px 0 0' }} />
+                    })}
                   </div>
-                ))
+                )
               }
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: INK3, marginTop: 4 }}>
+                {data.onTimeDispatch.map(o => <span key={o.month}>{o.month}</span>)}
+              </div>
             </Card>
           </div>
         </div>

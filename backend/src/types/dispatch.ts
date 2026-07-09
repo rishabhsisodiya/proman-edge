@@ -92,6 +92,16 @@ export interface DispatchScheduleRow {
   vehicleNo: string | null
 }
 
+// ── On-time dispatch % (rolling 3 months) — restored per user request; delay
+// reasons list dropped (no backing field, per the v3 doc's original note) ──
+
+export interface OnTimeDispatchMonth {
+  month: string
+  totalDispatches: number
+  onTime: number
+  onTimePct: number
+}
+
 // ── W-DISP-11 Action queue (2 tabs) ──────────────────────────────────────────
 
 export interface DnToSubmitRow {
@@ -159,6 +169,7 @@ export interface DispatchHomepageData {
   pipelineTable: DispatchPipelineRow[]
   vehicleBooking: VehicleBookingRow[]
   scheduleThisWeek: DispatchScheduleRow[]
+  onTimeDispatch: OnTimeDispatchMonth[]
   actionQueue: DispatchActionQueue
   alerts: DispatchAlerts
 }

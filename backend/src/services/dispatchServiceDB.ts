@@ -4,8 +4,8 @@ import type {
   DispatchHomepageData, ReadyToDispatch, DispatchBlocked, DispatchedThisWeek,
   EwayBillsExpiring, RevenuePendingInvoice, DispatchStageFlow, DispatchPipelineRow,
   DocumentationChecklist, VehicleBookingRow, EwayBillRow, DispatchScheduleRow,
-  DispatchActionQueue, DnToSubmitRow, InvoiceAwaitingDispatchRow, DispatchAlerts,
-  CommittedDispatchTodayRow, WoDelayedRow, NoVehicleTargetSoonRow,
+  OnTimeDispatchMonth, DispatchActionQueue, DnToSubmitRow, InvoiceAwaitingDispatchRow,
+  DispatchAlerts, CommittedDispatchTodayRow, WoDelayedRow, NoVehicleTargetSoonRow,
 } from '../types/dispatch'
 
 // Single site (PISPL) — read-only, per proman-docs/Dispatch_Head_SQL_Queries_v3.md
@@ -326,6 +326,38 @@ async function getDispatchScheduleThisWeek(): Promise<DispatchScheduleRow[]> {
   }))
 }
 
+// ── On-time dispatch % (rolling 3 months) — restored per user request from the
+// original v1 doc; the v3 doc's delay-reasons sub-widget stays dropped (no
+// backing field on Delivery Note or Sales Order). ────────────────────────────
+
+async function getOnTimeDispatch(): Promise<OnTimeDispatchMonth[]> {
+  const rows = await query<{
+    month: string; total_dispatches: number; on_time: number; on_time_pct: number
+  }>(
+    `SELECT
+        DATE_FORMAT(x.posting_date, '%Y-%m')                         AS month,
+        COUNT(*)                                                     AS total_dispatches,
+        SUM(x.posting_date <= x.promised)                           AS on_time,
+        ROUND(SUM(x.posting_date <= x.promised) / COUNT(*) * 100, 0) AS on_time_pct
+     FROM (
+       SELECT dn.name, dn.posting_date, MAX(so.delivery_date) AS promised
+       FROM \`tabDelivery Note\` dn
+       JOIN \`tabDelivery Note Item\` dni ON dni.parent = dn.name
+       JOIN \`tabSales Order\` so ON so.name = dni.against_sales_order
+       WHERE dn.docstatus = 1 AND dn.is_return = 0
+         AND dn.posting_date >= DATE_FORMAT(CURDATE() - INTERVAL 2 MONTH, '%Y-%m-01')
+       GROUP BY dn.name, dn.posting_date
+     ) x
+     WHERE x.promised IS NOT NULL
+     GROUP BY month
+     ORDER BY month`,
+  )
+  return rows.map(r => ({
+    month: r.month, totalDispatches: Number(r.total_dispatches),
+    onTime: Number(r.on_time), onTimePct: Number(r.on_time_pct),
+  }))
+}
+
 // ── W-DISP-11 — Action queue (2 tabs) ────────────────────────────────────────
 
 async function getDnsToSubmit(): Promise<DnToSubmitRow[]> {
@@ -484,7 +516,7 @@ async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
   const [
     readyToDispatch, dispatchBlocked, dispatchedThisWeek, ewayBillsExpiring,
     revenuePendingInvoice, stageFlow, pipelineTable, vehicleBooking,
-    scheduleThisWeek, actionQueue, alerts,
+    scheduleThisWeek, onTimeDispatch, actionQueue, alerts,
   ] = await Promise.all([
     getReadyToDispatch(),
     getDispatchBlocked(),
@@ -495,6 +527,7 @@ async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
     getDispatchPipelineTable(),
     getVehicleBooking(),
     getDispatchScheduleThisWeek(),
+    getOnTimeDispatch(),
     getDispatchActionQueue(),
     getDispatchAlerts(),
   ])
@@ -511,6 +544,7 @@ async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
     pipelineTable,
     vehicleBooking,
     scheduleThisWeek,
+    onTimeDispatch,
     actionQueue,
     alerts,
   }

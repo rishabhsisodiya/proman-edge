@@ -56,6 +56,13 @@ export interface DispatchScheduleRow {
   vehicleNo: string | null
 }
 
+export interface OnTimeDispatchMonth {
+  month: string
+  totalDispatches: number
+  onTime: number
+  onTimePct: number
+}
+
 export interface DnToSubmitRow {
   dnNo: string
   customerName: string
@@ -117,6 +124,7 @@ export interface DispatchHomepageData {
   pipelineTable: DispatchPipelineRow[]
   vehicleBooking: VehicleBookingRow[]
   scheduleThisWeek: DispatchScheduleRow[]
+  onTimeDispatch: OnTimeDispatchMonth[]
   actionQueue: DispatchActionQueue
   alerts: DispatchAlerts
 }
