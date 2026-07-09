@@ -3,15 +3,17 @@ import { cacheGet, cacheSet } from '../cache/redis'
 import type {
   DispatchHomepageData, ReadyToDispatch, DispatchBlocked, DispatchedThisWeek,
   EwayBillsExpiring, RevenuePendingInvoice, DispatchStageFlow, DispatchPipelineRow,
-  DocumentationChecklist, EwayBillRow, DispatchScheduleRow, OnTimeDispatchMonth,
-  DispatchActionQueue, DnToSubmitRow, InvoiceAwaitingDispatchRow,
+  DocumentationChecklist, VehicleBookingRow, EwayBillRow, DispatchScheduleRow,
+  DispatchActionQueue, DnToSubmitRow, InvoiceAwaitingDispatchRow, DispatchAlerts,
+  CommittedDispatchTodayRow, WoDelayedRow, NoVehicleTargetSoonRow,
 } from '../types/dispatch'
 
-// Single site (PISPL) — read-only, per proman-docs/Dispatch_Head_SQL_Queries.md.
+// Single site (PISPL) — read-only, per proman-docs/Dispatch_Head_SQL_Queries_v3.md
+// (widget IDs W-DISP-01..13, alerts A-DISP-01..05).
 
 const erpBaseUrl = () => (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, '')
 
-// ── W-DSP-01 — Ready to dispatch (KPI) ───────────────────────────────────────
+// ── W-DISP-01 — Ready to dispatch (KPI) — QI now keyed to Work Order ────────
 
 async function getReadyToDispatch(): Promise<ReadyToDispatch> {
   const rows = await query<{ ready_to_dispatch: number }>(
@@ -20,25 +22,18 @@ async function getReadyToDispatch(): Promise<ReadyToDispatch> {
      WHERE so.docstatus = 1
        AND EXISTS (
          SELECT 1 FROM \`tabWork Order\` wo
-         WHERE wo.sales_order = so.name
-           AND wo.docstatus = 1
-           AND EXISTS (SELECT 1 FROM \`tabJob Card\` jc WHERE jc.work_order = wo.name)
-           AND NOT EXISTS (SELECT 1 FROM \`tabJob Card\` jc2
-                           WHERE jc2.work_order = wo.name AND jc2.status <> 'Completed')
-           AND NOT EXISTS (
-             SELECT 1 FROM \`tabJob Card\` jc3
-             WHERE jc3.work_order = wo.name
-               AND NOT EXISTS (SELECT 1 FROM \`tabQuality Inspection\` qi
-                               WHERE qi.reference_type = 'Job Card'
-                                 AND qi.reference_name = jc3.name
-                                 AND qi.status = 'Accepted')
-           )
+         WHERE wo.sales_order = so.name AND wo.docstatus = 1
+           AND EXISTS (SELECT 1 FROM \`tabJob Card\` jc
+                       WHERE jc.work_order = wo.name AND jc.status = 'Completed')
+           AND EXISTS (SELECT 1 FROM \`tabQuality Inspection\` qi
+                       WHERE qi.reference_type = 'Work Order' AND qi.reference_name = wo.name
+                         AND qi.status = 'Accepted')
        )`,
   )
   return { count: Number(rows[0]?.ready_to_dispatch ?? 0) }
 }
 
-// ── W-DSP-02 — Dispatch blocked (KPI) ────────────────────────────────────────
+// ── W-DISP-02 — Dispatch blocked (KPI) ───────────────────────────────────────
 
 async function getDispatchBlocked(): Promise<DispatchBlocked> {
   const rows = await query<{ dispatch_blocked: number }>(
@@ -61,7 +56,7 @@ async function getDispatchBlocked(): Promise<DispatchBlocked> {
   return { count: Number(rows[0]?.dispatch_blocked ?? 0) }
 }
 
-// ── W-DSP-03 — Dispatched this week (KPI) ────────────────────────────────────
+// ── W-DISP-03 — Dispatched this week (KPI) ───────────────────────────────────
 
 async function getDispatchedThisWeek(): Promise<DispatchedThisWeek> {
   const rows = await query<{ dispatched_this_week: number; dispatch_value: number }>(
@@ -79,7 +74,7 @@ async function getDispatchedThisWeek(): Promise<DispatchedThisWeek> {
   }
 }
 
-// ── W-DSP-04 — e-Way bills expiring (KPI) ────────────────────────────────────
+// ── W-DISP-04 — e-Way bills expiring (KPI) ───────────────────────────────────
 
 async function getEwayBillsExpiring(): Promise<EwayBillsExpiring> {
   const rows = await query<{ ewb_expiring_week: number; expiring_today: number }>(
@@ -98,16 +93,16 @@ async function getEwayBillsExpiring(): Promise<EwayBillsExpiring> {
   }
 }
 
-// ── W-DSP-05 — Revenue pending invoice (KPI) ─────────────────────────────────
+// ── W-DISP-05 — Revenue pending invoice (KPI) — DN status = 'To Bill' ───────
 
 async function getRevenuePendingInvoice(): Promise<RevenuePendingInvoice> {
   const rows = await query<{ dns_pending_invoice: number; revenue_pending: number }>(
     `SELECT
-        COUNT(*)                                                    AS dns_pending_invoice,
-        ROUND(SUM(base_grand_total * (100 - per_billed) / 100), 2)  AS revenue_pending
+        COUNT(*)                        AS dns_pending_invoice,
+        ROUND(SUM(base_grand_total), 2) AS revenue_pending
      FROM \`tabDelivery Note\`
      WHERE docstatus = 1 AND is_return = 0
-       AND per_billed < 100
+       AND status = 'To Bill'
        AND YEAR(posting_date) = YEAR(CURDATE())`,
   )
   return {
@@ -116,7 +111,7 @@ async function getRevenuePendingInvoice(): Promise<RevenuePendingInvoice> {
   }
 }
 
-// ── W-DSP-06 — Dispatch readiness pipeline (stage-flow + table) ─────────────
+// ── W-DISP-06 — Dispatch readiness pipeline (stage-flow + table) — strict QC-first ─
 
 async function getDispatchStageFlow(): Promise<DispatchStageFlow> {
   const rows = await query<{
@@ -133,11 +128,12 @@ async function getDispatchStageFlow(): Promise<DispatchStageFlow> {
      FROM (
        SELECT
          CASE
-           WHEN IFNULL(dn.vehicle_no,'') <> ''                              THEN 'Vehicle booked'
-           WHEN f.has_si = 1 AND f.has_po = 1 AND f.has_eway = 1            THEN 'Docs complete'
-           WHEN f.has_qc = 1 AND (f.has_si = 1 OR f.has_po = 1 OR f.has_eway = 1) THEN 'Docs pending'
-           WHEN f.has_qc = 1                                                THEN 'QC cleared'
-           ELSE 'QC pending'
+           WHEN f.has_qc = 0                                                THEN 'QC pending'
+           WHEN f.has_si = 1 AND f.has_po = 1 AND f.has_eway = 1
+                AND IFNULL(dn.vehicle_no,'') <> ''                         THEN 'Vehicle booked'
+           WHEN f.has_si = 1 AND f.has_po = 1 AND f.has_eway = 1           THEN 'Docs complete'
+           WHEN f.has_si = 1 OR f.has_po = 1 OR f.has_eway = 1             THEN 'Docs pending'
+           ELSE 'QC cleared'
          END AS stage
        FROM \`tabDelivery Note\` dn
        JOIN (
@@ -187,7 +183,7 @@ async function getDispatchPipelineTable(): Promise<DispatchPipelineRow[]> {
                            WHERE qi.reference_type='Delivery Note' AND qi.reference_name=dn.name) THEN 'QC pending'
           WHEN NOT EXISTS (SELECT 1 FROM \`tabDelivery Note Item\` d2 JOIN \`tabSales Order\` s2 ON s2.name=d2.against_sales_order
                            WHERE d2.parent=dn.name AND IFNULL(s2.po_no,'')<>'') THEN 'Customer PO pending'
-          WHEN IFNULL(dn.ewaybill,'')  = '' THEN 'e-Way bill pending'
+          WHEN IFNULL(dn.ewaybill,'')  = '' THEN 'e-Way pending'
           WHEN IFNULL(dn.vehicle_no,'') = '' THEN 'Vehicle pending'
           ELSE 'Ready'
         END AS blocker
@@ -204,29 +200,25 @@ async function getDispatchPipelineTable(): Promise<DispatchPipelineRow[]> {
   }))
 }
 
-// ── W-DSP-07 — Documentation checklist (per Delivery Note) ──────────────────
+// ── W-DISP-07 — Documentation checklist (per Delivery Note) — 5 fields ──────
 
 export async function getDocumentationChecklist(dnName: string): Promise<DocumentationChecklist | null> {
   const rows = await query<{
     dn_no: string; customer_name: string; qc_certificate: 'Done' | 'Pending'
     sales_invoice_approved: 'Done' | 'Pending'; eway_bill_generated: 'Done' | 'Pending'
     vehicle_booking_confirmed: 'Done' | 'Pending'; customer_po_verified: 'Done' | 'Pending'
-    packing_list_attached: 'Done' | 'Pending'
   }>(
     `SELECT
-        dn.name          AS dn_no,
-        dn.customer_name,
+        dn.name AS dn_no, dn.customer_name,
         IF(EXISTS(SELECT 1 FROM \`tabQuality Inspection\` qi
                   WHERE qi.reference_type='Delivery Note' AND qi.reference_name=dn.name AND qi.status='Accepted'),
-           'Done','Pending')                                          AS qc_certificate,
-        IF(dn.per_billed >= 100, 'Done','Pending')                    AS sales_invoice_approved,
-        IF(IFNULL(dn.ewaybill,'')   <> '', 'Done','Pending')          AS eway_bill_generated,
-        IF(IFNULL(dn.vehicle_no,'') <> '', 'Done','Pending')          AS vehicle_booking_confirmed,
+           'Done','Pending')                                       AS qc_certificate,
+        IF(dn.per_billed >= 100, 'Done','Pending')                 AS sales_invoice_approved,
+        IF(IFNULL(dn.ewaybill,'')   <> '', 'Done','Pending')       AS eway_bill_generated,
+        IF(IFNULL(dn.vehicle_no,'') <> '', 'Done','Pending')       AS vehicle_booking_confirmed,
         IF(EXISTS(SELECT 1 FROM \`tabDelivery Note Item\` d2 JOIN \`tabSales Order\` s2 ON s2.name=d2.against_sales_order
                   WHERE d2.parent=dn.name AND IFNULL(s2.po_no,'')<>''),
-           'Done','Pending')                                          AS customer_po_verified,
-        IF(EXISTS(SELECT 1 FROM \`tabPacking Slip\` ps WHERE ps.delivery_note=dn.name AND ps.docstatus<2),
-           'Done','Pending')                                          AS packing_list_attached
+           'Done','Pending')                                       AS customer_po_verified
      FROM \`tabDelivery Note\` dn
      WHERE dn.name = ?`,
     [dnName],
@@ -241,13 +233,38 @@ export async function getDocumentationChecklist(dnName: string): Promise<Documen
     ewayBillGenerated: r.eway_bill_generated,
     vehicleBookingConfirmed: r.vehicle_booking_confirmed,
     customerPoVerified: r.customer_po_verified,
-    packingListAttached: r.packing_list_attached,
-    customerSiteConfirmed: 'Manual',
-    testCertificateAttached: 'Manual',
   }
 }
 
-// ── W-DSP-08 — e-Way bill status (table) ─────────────────────────────────────
+// ── W-DISP-08 — Vehicle booking (table) — DN logistics fields ───────────────
+
+async function getVehicleBooking(): Promise<VehicleBookingRow[]> {
+  const rows = await query<{
+    dn_no: string; customer_name: string; vehicle_no: string | null
+    transporter_name: string | null; lr_no: string | null; lr_date: string | null; status: string
+  }>(
+    `SELECT
+        dn.name           AS dn_no,
+        dn.customer_name,
+        dn.vehicle_no,
+        dn.transporter_name,
+        dn.lr_no,
+        dn.lr_date,
+        dn.status
+     FROM \`tabDelivery Note\` dn
+     WHERE dn.docstatus = 0 AND dn.is_return = 0
+       AND ( IFNULL(dn.transporter, '') = ''
+          OR IFNULL(dn.lr_no, '')       = ''
+          OR IFNULL(dn.lr_date, '')     = '' )
+     ORDER BY dn.posting_date ASC`,
+  )
+  return rows.map(r => ({
+    dnNo: r.dn_no, customerName: r.customer_name, vehicleNo: r.vehicle_no,
+    transporterName: r.transporter_name, lrNo: r.lr_no, lrDate: r.lr_date, status: r.status,
+  }))
+}
+
+// ── W-DISP-10 — e-Way bill status (table) — was W-DSP-08 ────────────────────
 
 export async function getEwayBillStatus(): Promise<EwayBillRow[]> {
   const rows = await query<{
@@ -281,64 +298,35 @@ export async function getEwayBillStatus(): Promise<EwayBillRow[]> {
   }))
 }
 
-// ── W-DSP-09 — This week's dispatch schedule ─────────────────────────────────
+// ── W-DISP-09 — This week's dispatch schedule — DN-based + destination city ─
 
 async function getDispatchScheduleThisWeek(): Promise<DispatchScheduleRow[]> {
   const rows = await query<{
-    delivery_date: string; so_no: string; customer_name: string; product: string; value: number
+    posting_date: string; dn_no: string; customer_name: string
+    destination_city: string | null; product: string | null; vehicle_no: string | null
   }>(
     `SELECT
-        so.delivery_date,
-        so.name           AS so_no,
-        so.customer_name,
-        (SELECT soi.item_name FROM \`tabSales Order Item\` soi
-         WHERE soi.parent = so.name ORDER BY soi.idx LIMIT 1) AS product,
-        ROUND(so.base_grand_total, 0) AS value
-     FROM \`tabSales Order\` so
-     WHERE so.docstatus = 1
-       AND so.status IN ('To Deliver','To Deliver and Bill')
-       AND so.per_delivered < 100
-       AND so.delivery_date BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
-                                AND DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) + INTERVAL 6 DAY
-     ORDER BY so.delivery_date ASC`,
+        dn.posting_date,
+        dn.name           AS dn_no,
+        dn.customer_name,
+        addr.city         AS destination_city,
+        (SELECT di.item_name FROM \`tabDelivery Note Item\` di
+         WHERE di.parent = dn.name ORDER BY di.idx LIMIT 1) AS product,
+        dn.vehicle_no
+     FROM \`tabDelivery Note\` dn
+     LEFT JOIN \`tabAddress\` addr ON addr.name = dn.shipping_address_name
+     WHERE dn.docstatus = 1 AND dn.is_return = 0
+       AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+       AND dn.posting_date <= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) + INTERVAL 5 DAY
+     ORDER BY dn.posting_date ASC`,
   )
   return rows.map(r => ({
-    deliveryDate: r.delivery_date, soNo: r.so_no, customerName: r.customer_name,
-    product: r.product, value: Number(r.value),
+    postingDate: r.posting_date, dnNo: r.dn_no, customerName: r.customer_name,
+    destinationCity: r.destination_city, product: r.product ?? '—', vehicleNo: r.vehicle_no,
   }))
 }
 
-// ── W-DSP-10 — On-time dispatch % (rolling 3 months) ─────────────────────────
-
-async function getOnTimeDispatch(): Promise<OnTimeDispatchMonth[]> {
-  const rows = await query<{
-    month: string; total_dispatches: number; on_time: number; on_time_pct: number
-  }>(
-    `SELECT
-        DATE_FORMAT(x.posting_date, '%Y-%m')                         AS month,
-        COUNT(*)                                                     AS total_dispatches,
-        SUM(x.posting_date <= x.promised)                           AS on_time,
-        ROUND(SUM(x.posting_date <= x.promised) / COUNT(*) * 100, 0) AS on_time_pct
-     FROM (
-       SELECT dn.name, dn.posting_date, MAX(so.delivery_date) AS promised
-       FROM \`tabDelivery Note\` dn
-       JOIN \`tabDelivery Note Item\` dni ON dni.parent = dn.name
-       JOIN \`tabSales Order\` so ON so.name = dni.against_sales_order
-       WHERE dn.docstatus = 1 AND dn.is_return = 0
-         AND dn.posting_date >= DATE_FORMAT(CURDATE() - INTERVAL 2 MONTH, '%Y-%m-01')
-       GROUP BY dn.name, dn.posting_date
-     ) x
-     WHERE x.promised IS NOT NULL
-     GROUP BY month
-     ORDER BY month`,
-  )
-  return rows.map(r => ({
-    month: r.month, totalDispatches: Number(r.total_dispatches),
-    onTime: Number(r.on_time), onTimePct: Number(r.on_time_pct),
-  }))
-}
-
-// ── W-DSP-11 — Action queue (2 tabs) ─────────────────────────────────────────
+// ── W-DISP-11 — Action queue (2 tabs) ────────────────────────────────────────
 
 async function getDnsToSubmit(): Promise<DnToSubmitRow[]> {
   const rows = await query<{
@@ -399,6 +387,85 @@ async function getDispatchActionQueue(): Promise<DispatchActionQueue> {
   return { dnsToSubmit, invoicesAwaitingDispatch }
 }
 
+// ── A-DISP-01..05 — Alert triggers ───────────────────────────────────────────
+
+// A-DISP-01 (red) — committed dispatch today (SO delivery_date=today), WO Completed, no DN yet.
+async function getCommittedDispatchToday(): Promise<CommittedDispatchTodayRow[]> {
+  const rows = await query<{ sales_order: string; customer_name: string; delivery_date: string; value: number }>(
+    `SELECT so.name AS sales_order, so.customer_name, so.delivery_date,
+            ROUND(so.base_grand_total, 0) AS value
+     FROM \`tabSales Order\` so
+     WHERE so.docstatus = 1 AND so.delivery_date = CURDATE() AND so.per_delivered < 100
+       AND EXISTS (SELECT 1 FROM \`tabWork Order\` wo WHERE wo.sales_order = so.name AND wo.status = 'Completed')
+       AND NOT EXISTS (SELECT 1 FROM \`tabDelivery Note Item\` dni
+                       JOIN \`tabDelivery Note\` dn ON dn.name = dni.parent AND dn.docstatus < 2
+                       WHERE dni.against_sales_order = so.name)`,
+  )
+  return rows.map(r => ({
+    salesOrder: r.sales_order, customerName: r.customer_name,
+    deliveryDate: r.delivery_date, value: Number(r.value),
+  }))
+}
+
+// A-DISP-02 (red) — Work Orders past expected_delivery_date by > 3 days, bounded to recently-due (90d).
+async function getWoDelayed(): Promise<WoDelayedRow[]> {
+  const rows = await query<{
+    work_order: string; sales_order: string; production_item: string
+    expected_delivery_date: string; days_late: number
+  }>(
+    `SELECT wo.name AS work_order, wo.sales_order, wo.production_item,
+            wo.expected_delivery_date, DATEDIFF(CURDATE(), wo.expected_delivery_date) AS days_late
+     FROM \`tabWork Order\` wo
+     WHERE wo.docstatus = 1
+       AND wo.status NOT IN ('Completed','Stopped','Closed','Cancelled')
+       AND wo.expected_delivery_date IS NOT NULL
+       AND wo.expected_delivery_date < CURDATE() - INTERVAL 3 DAY
+       AND wo.expected_delivery_date >= CURDATE() - INTERVAL 90 DAY
+     ORDER BY days_late DESC
+     LIMIT 20`,
+  )
+  return rows.map(r => ({
+    workOrder: r.work_order, salesOrder: r.sales_order, productionItem: r.production_item,
+    expectedDeliveryDate: r.expected_delivery_date, daysLate: Number(r.days_late),
+  }))
+}
+
+// A-DISP-03 (amber) — draft DN, no vehicle, connected SO delivery_date within 3 days.
+async function getNoVehicleTargetSoon(): Promise<NoVehicleTargetSoonRow[]> {
+  const rows = await query<{ dn_no: string; customer_name: string; target_date: string | null }>(
+    `SELECT dn.name AS dn_no, dn.customer_name, MIN(so.delivery_date) AS target_date
+     FROM \`tabDelivery Note\` dn
+     JOIN \`tabDelivery Note Item\` dni ON dni.parent = dn.name
+     JOIN \`tabSales Order\` so ON so.name = dni.against_sales_order
+     WHERE dn.docstatus = 0 AND dn.is_return = 0 AND IFNULL(dn.vehicle_no,'') = ''
+       AND so.delivery_date BETWEEN CURDATE() AND CURDATE() + INTERVAL 3 DAY
+     GROUP BY dn.name, dn.customer_name
+     ORDER BY target_date ASC`,
+  )
+  return rows.map(r => ({ dnNo: r.dn_no, customerName: r.customer_name, targetDate: r.target_date }))
+}
+
+// A-DISP-05 (amber) — no submitted DN in the last 3 days.
+async function getNoDispatch3Days(): Promise<number> {
+  const rows = await query<{ dns_last_3_days: number }>(
+    `SELECT COUNT(*) AS dns_last_3_days
+     FROM \`tabDelivery Note\`
+     WHERE docstatus = 1 AND is_return = 0
+       AND posting_date >= CURDATE() - INTERVAL 3 DAY`,
+  )
+  return Number(rows[0]?.dns_last_3_days ?? 0)
+}
+
+async function getDispatchAlerts(): Promise<DispatchAlerts> {
+  const [committedDispatchToday, woDelayed, noVehicleTargetSoon, noDispatch3Days] = await Promise.all([
+    getCommittedDispatchToday(),
+    getWoDelayed(),
+    getNoVehicleTargetSoon(),
+    getNoDispatch3Days(),
+  ])
+  return { committedDispatchToday, woDelayed, noVehicleTargetSoon, noDispatch3Days }
+}
+
 // ── Main homepage aggregate ───────────────────────────────────────────────────
 
 const CACHE_KEY = 'dispatch:homepage'
@@ -416,8 +483,8 @@ export async function getDispatchHomepage(): Promise<DispatchHomepageData> {
 async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
   const [
     readyToDispatch, dispatchBlocked, dispatchedThisWeek, ewayBillsExpiring,
-    revenuePendingInvoice, stageFlow, pipelineTable, scheduleThisWeek,
-    onTimeDispatch, actionQueue,
+    revenuePendingInvoice, stageFlow, pipelineTable, vehicleBooking,
+    scheduleThisWeek, actionQueue, alerts,
   ] = await Promise.all([
     getReadyToDispatch(),
     getDispatchBlocked(),
@@ -426,9 +493,10 @@ async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
     getRevenuePendingInvoice(),
     getDispatchStageFlow(),
     getDispatchPipelineTable(),
+    getVehicleBooking(),
     getDispatchScheduleThisWeek(),
-    getOnTimeDispatch(),
     getDispatchActionQueue(),
+    getDispatchAlerts(),
   ])
 
   return {
@@ -441,8 +509,9 @@ async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
     revenuePendingInvoice,
     stageFlow,
     pipelineTable,
+    vehicleBooking,
     scheduleThisWeek,
-    onTimeDispatch,
     actionQueue,
+    alerts,
   }
 }

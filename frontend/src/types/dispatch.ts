@@ -1,4 +1,5 @@
 // ── Dispatch & Logistics Head homepage (HP-DSP-001) — single site (PISPL) ───
+// Source: proman-docs/Dispatch_Head_SQL_Queries_v3.md (widget IDs W-DISP-01..13, alerts A-DISP-01..05)
 
 export interface DispatchStageFlow {
   qcPending: number
@@ -14,7 +15,7 @@ export interface DispatchPipelineRow {
   customerName: string
   product: string
   targetDate: string | null
-  blocker: 'QC pending' | 'Customer PO pending' | 'e-Way bill pending' | 'Vehicle pending' | 'Ready'
+  blocker: 'QC pending' | 'Customer PO pending' | 'e-Way pending' | 'Vehicle pending' | 'Ready'
 }
 
 export interface DocumentationChecklist {
@@ -25,9 +26,16 @@ export interface DocumentationChecklist {
   ewayBillGenerated: 'Done' | 'Pending'
   vehicleBookingConfirmed: 'Done' | 'Pending'
   customerPoVerified: 'Done' | 'Pending'
-  packingListAttached: 'Done' | 'Pending'
-  customerSiteConfirmed: 'Manual'
-  testCertificateAttached: 'Manual'
+}
+
+export interface VehicleBookingRow {
+  dnNo: string
+  customerName: string
+  vehicleNo: string | null
+  transporterName: string | null
+  lrNo: string | null
+  lrDate: string | null
+  status: string
 }
 
 export interface EwayBillRow {
@@ -40,18 +48,12 @@ export interface EwayBillRow {
 }
 
 export interface DispatchScheduleRow {
-  deliveryDate: string
-  soNo: string
+  postingDate: string
+  dnNo: string
   customerName: string
+  destinationCity: string | null
   product: string
-  value: number
-}
-
-export interface OnTimeDispatchMonth {
-  month: string
-  totalDispatches: number
-  onTime: number
-  onTimePct: number
+  vehicleNo: string | null
 }
 
 export interface DnToSubmitRow {
@@ -75,6 +77,34 @@ export interface DispatchActionQueue {
   invoicesAwaitingDispatch: InvoiceAwaitingDispatchRow[]
 }
 
+export interface CommittedDispatchTodayRow {
+  salesOrder: string
+  customerName: string
+  deliveryDate: string
+  value: number
+}
+
+export interface WoDelayedRow {
+  workOrder: string
+  salesOrder: string
+  productionItem: string
+  expectedDeliveryDate: string
+  daysLate: number
+}
+
+export interface NoVehicleTargetSoonRow {
+  dnNo: string
+  customerName: string
+  targetDate: string | null
+}
+
+export interface DispatchAlerts {
+  committedDispatchToday: CommittedDispatchTodayRow[]
+  woDelayed: WoDelayedRow[]
+  noVehicleTargetSoon: NoVehicleTargetSoonRow[]
+  noDispatch3Days: number
+}
+
 export interface DispatchHomepageData {
   syncedAt: string
   erpBaseUrl: string
@@ -85,7 +115,8 @@ export interface DispatchHomepageData {
   revenuePendingInvoice: { count: number; revenuePending: number }
   stageFlow: DispatchStageFlow
   pipelineTable: DispatchPipelineRow[]
+  vehicleBooking: VehicleBookingRow[]
   scheduleThisWeek: DispatchScheduleRow[]
-  onTimeDispatch: OnTimeDispatchMonth[]
   actionQueue: DispatchActionQueue
+  alerts: DispatchAlerts
 }

@@ -92,7 +92,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 // Blocker → pill tone + row stripe, matching the template's severity coding.
 function blockerTone(blocker: DispatchPipelineRow['blocker']): 'd' | 'w' | 's' | 'n' {
   if (blocker === 'Ready') return 's'
-  if (blocker === 'Vehicle pending' || blocker === 'e-Way bill pending') return 'w'
+  if (blocker === 'Vehicle pending' || blocker === 'e-Way pending') return 'w'
   if (blocker === 'Customer PO pending') return 'd'
   return 'n' // QC pending
 }
@@ -107,6 +107,10 @@ function ewayStatusTone(status: string): 'd' | 'w' | 's' | 'i' {
   if (status === 'Extend (today)') return 'd'
   if (status === 'Expiring soon') return 'w'
   return 's'
+}
+
+function vehicleBookingTone(row: { vehicleNo: string | null; transporterName: string | null; lrNo: string | null; lrDate: string | null }): 'd' | 'w' {
+  return row.vehicleNo ? 'w' : 'd'
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -172,24 +176,30 @@ export default function DispatchHeadPage() {
   const erpBase = data.erpBaseUrl.replace(/\/$/, '')
   const erpUrl  = (path: string) => `${erpBase}/app/${path}`
 
+  // A-DISP-01..05 alerts drive the bell dropdown + banner (replaces ad-hoc KPI-derived alerts).
   const alerts: { level: 'red' | 'amber'; message: string }[] = []
-  if (data.dispatchBlocked.count > 0) {
-    alerts.push({ level: 'red', message: `${data.dispatchBlocked.count} delivery note${data.dispatchBlocked.count === 1 ? '' : 's'} blocked from dispatch — missing docs, vehicle, or QC.` })
+  const firstCommitted = data.alerts.committedDispatchToday[0]
+  if (firstCommitted) {
+    alerts.push({ level: 'red', message: `Committed dispatch today: ${firstCommitted.salesOrder} (${firstCommitted.customerName}) — Work Order completed, no delivery note yet.` })
   }
-  if (data.ewayBillsExpiring.expiringToday > 0) {
-    alerts.push({ level: 'amber', message: `${data.ewayBillsExpiring.expiringToday} e-way bill${data.ewayBillsExpiring.expiringToday === 1 ? '' : 's'} expiring today.` })
+  const firstDelayed = data.alerts.woDelayed[0]
+  if (firstDelayed) {
+    alerts.push({ level: 'red', message: `${data.alerts.woDelayed.length} work order${data.alerts.woDelayed.length === 1 ? '' : 's'} delayed beyond expected delivery date (worst: ${firstDelayed.workOrder}, ${firstDelayed.daysLate}d late).` })
+  }
+  if (data.alerts.noVehicleTargetSoon.length > 0) {
+    alerts.push({ level: 'amber', message: `${data.alerts.noVehicleTargetSoon.length} delivery note${data.alerts.noVehicleTargetSoon.length === 1 ? '' : 's'} ready but no vehicle booked, target within 3 days.` })
+  }
+  if (data.revenuePendingInvoice.revenuePending > 2_500_000) {
+    alerts.push({ level: 'red', message: `Revenue pending invoicing (To-Bill DNs) is ${fmtMoney(data.revenuePendingInvoice.revenuePending)} — over ₹25L.` })
+  } else if (data.revenuePendingInvoice.revenuePending > 1_000_000) {
+    alerts.push({ level: 'amber', message: `Revenue pending invoicing (To-Bill DNs) is ${fmtMoney(data.revenuePendingInvoice.revenuePending)} — over ₹10L.` })
+  }
+  if (data.alerts.noDispatch3Days === 0) {
+    alerts.push({ level: 'amber', message: 'No delivery note dispatched in the last 3 days.' })
   }
 
-  const bannerParts: string[] = []
-  let bannerLevel: 'red' | 'amber' = 'amber'
-  if (data.dispatchBlocked.count > 0) {
-    bannerParts.push(`${data.dispatchBlocked.count} delivery note${data.dispatchBlocked.count === 1 ? '' : 's'} blocked from dispatch — missing docs, vehicle, or QC.`)
-    bannerLevel = 'red'
-  }
-  if (data.ewayBillsExpiring.expiringToday > 0) {
-    bannerParts.push(`${data.ewayBillsExpiring.expiringToday} e-way bill${data.ewayBillsExpiring.expiringToday === 1 ? '' : 's'} expiring today.`)
-  }
-  const banner = bannerParts.length ? { level: bannerLevel, text: bannerParts.join(' | ') } : null
+  const bannerSource = alerts.find(a => a.level === 'red') ?? alerts[0] ?? null
+  const banner = bannerSource ? { level: bannerSource.level, text: alerts.slice(0, 2).map(a => a.message).join('  |  ') } : null
 
   const STAGES: { key: keyof typeof data.stageFlow; label: string; cls: 'n' | 'i' | 's' }[] = [
     { key: 'qcPending', label: 'QC pending', cls: 'n' },
@@ -347,10 +357,10 @@ export default function DispatchHeadPage() {
           <KpiTile label="e-Way Bills Expiring" value={String(data.ewayBillsExpiring.expiringWeek)} sub={`${data.ewayBillsExpiring.expiringToday} expires today`} accent={RED}
             href={erpUrl(`e-waybill-log?is_cancelled=0&valid_upto=["between",["${iso(todayDate)}","${iso(in7Days)}"]]`)} />
           <KpiTile label="Revenue Pending Invoice" value={fmtMoney(data.revenuePendingInvoice.revenuePending)} sub={`${data.revenuePendingInvoice.count} DNs awaiting invoice`} accent={AMBER}
-            href={erpUrl('delivery-note?docstatus=1&per_billed=["<",100]')} />
+            href={erpUrl('delivery-note?status=To Bill')} />
         </div>
 
-        {/* Zone 3 — Pipeline | Documentation checklist | Vehicle + e-way status */}
+        {/* Zone 3 — Pipeline | Documentation checklist | Vehicle booking + e-way status */}
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
           <div style={{ flex: '1.3 1 400px' }}>
             <Card title="Dispatch readiness pipeline" icon="ti-layout-kanban" fill>
@@ -412,9 +422,6 @@ export default function DispatchHeadPage() {
                       <DocRow label="Vehicle booking confirmed" ok={checklist.vehicleBookingConfirmed === 'Done'}
                         actionLabel="Book" actionHref={erpUrl(`delivery-note/${encodeURIComponent(selectedDn ?? '')}`)} />
                       <DocRow label="Customer PO verified" ok={checklist.customerPoVerified === 'Done'} />
-                      <DocRow label="Packing list attached" ok={checklist.packingListAttached === 'Done'} />
-                      <DocRow label="Customer site confirmed" manual />
-                      <DocRow label="Test certificate attached" manual />
                       <div style={{ marginTop: 12 }}>
                         <a href={erpUrl(`delivery-note/${encodeURIComponent(selectedDn ?? '')}`)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
                           <button style={{
@@ -430,10 +437,25 @@ export default function DispatchHeadPage() {
           </div>
 
           <div style={{ flex: '1 1 340px' }}>
-            <Card title="Vehicle booking status" icon="ti-truck-loading" fill right={<span style={{ fontSize: 10, color: INK3 }}>Not tracked in ERPNext</span>}>
-              <EmptyState>
-                Vehicle/transporter data is only assigned at dispatch — draft delivery notes carry no vehicle_no or transporter yet, so this table has no backing data on PISPL (per Shivam's SQL notes).
-              </EmptyState>
+            <Card title="Vehicle booking status" icon="ti-truck-loading" fill right={<Pill tone="d">{data.vehicleBooking.length} not booked</Pill>}>
+              {data.vehicleBooking.length === 0
+                ? <EmptyState>All draft delivery notes have transport details filled.</EmptyState>
+                : <Table
+                    widths={['22%', '26%', '18%', '17%', '17%']}
+                    head={['DN no.', 'Customer', 'Vehicle', 'Transporter', 'LR no.']}
+                    rows={data.vehicleBooking.slice(0, 8).map(v => (
+                      <>
+                        <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(vehicleBookingTone(v)) }}>
+                          <a href={erpUrl(`delivery-note/${encodeURIComponent(v.dnNo)}`)} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{v.dnNo}</a>
+                        </td>
+                        <td title={v.customerName}>{v.customerName}</td>
+                        <td>{v.vehicleNo ?? '—'}</td>
+                        <td title={v.transporterName ?? undefined}>{v.transporterName ?? '—'}</td>
+                        <td>{v.lrNo ?? '—'}</td>
+                      </>
+                    ))}
+                  />
+              }
 
               <div style={{ marginTop: 12 }}>
                 <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 12, color: INK, display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
@@ -459,26 +481,26 @@ export default function DispatchHeadPage() {
           </div>
         </div>
 
-        {/* Zone 4 — This week's schedule | On-time dispatch trend */}
+        {/* Zone 4 — This week's schedule | Alerts */}
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'stretch' }}>
           <div style={{ flex: '1 1 420px' }}>
             <Card title="This week's dispatch schedule" icon="ti-calendar" fill
-              right={<ViewAllInline href={erpUrl('sales-order?status=["in",["To Deliver","To Deliver and Bill"]]')} />}>
+              right={<ViewAllInline href={erpUrl('delivery-note?docstatus=1')} />}>
               {data.scheduleThisWeek.length === 0
-                ? <EmptyState>No pending deliveries scheduled this week.</EmptyState>
+                ? <EmptyState>No delivery notes dispatched this week.</EmptyState>
                 : data.scheduleThisWeek.map(s => {
-                  const daysAway = Math.round((new Date(s.deliveryDate).getTime() - Date.now()) / 86_400_000)
+                  const daysAway = Math.round((new Date(s.postingDate).getTime() - Date.now()) / 86_400_000)
                   const tone = daysAway <= 0
                     ? { bg: RED_BG, pill: 'd' as const, label: 'Today' }
                     : daysAway === 1
-                      ? { bg: AMBER_BG, pill: 'w' as const, label: fmtDate(s.deliveryDate) }
-                      : { bg: BG, pill: 'n' as const, label: fmtDate(s.deliveryDate) }
+                      ? { bg: AMBER_BG, pill: 'w' as const, label: fmtDate(s.postingDate) }
+                      : { bg: BG, pill: 'n' as const, label: fmtDate(s.postingDate) }
                   return (
-                    <a key={s.soNo} href={erpUrl(`sales-order/${encodeURIComponent(s.soNo)}`)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                    <a key={s.dnNo} href={erpUrl(`delivery-note/${encodeURIComponent(s.dnNo)}`)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
                       <div style={{ padding: '8px 10px', borderRadius: 9, background: tone.bg, display: 'flex', alignItems: 'center', gap: 9, marginBottom: 4 }}>
                         <span style={{ width: 74, flexShrink: 0 }}><Pill tone={tone.pill}>{tone.label}</Pill></span>
                         <span style={{ flex: 1, fontSize: 10.5, color: INK2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <strong style={{ color: NAVY }}>{s.soNo}</strong>, {s.customerName} ({s.product})
+                          <strong style={{ color: NAVY }}>{s.dnNo}</strong>, {s.customerName}{s.destinationCity ? `, ${s.destinationCity}` : ''} ({s.product})
                         </span>
                       </div>
                     </a>
@@ -489,26 +511,20 @@ export default function DispatchHeadPage() {
           </div>
 
           <div style={{ flex: '1 1 420px' }}>
-            <Card title="On-time dispatch — rolling 3 months" icon="ti-chart-bar" fill right={<span style={{ fontSize: 10, color: INK3 }}>Target 90%</span>}>
-              {data.onTimeDispatch.length === 0
-                ? <EmptyState>No completed dispatches with a promised date in the last 3 months.</EmptyState>
-                : (
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 70, position: 'relative' }}>
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: Math.round(70 * 90 / 100), height: 0, borderTop: `2px dashed ${ORANGE}`, opacity: 0.9 }} />
-                    {data.onTimeDispatch.map(o => {
-                      const h = Math.round(70 * o.onTimePct / 100)
-                      const c = o.onTimePct >= 90 ? GREEN : o.onTimePct >= 80 ? AMBER : RED
-                      return <div key={o.month} title={`${o.month}: ${o.onTimePct}%`} style={{ flex: 1, height: h, background: c, borderRadius: '4px 4px 0 0' }} />
-                    })}
+            <Card title="Alerts" icon="ti-alert-hexagon" fill right={<span style={{ fontSize: 10, color: INK3 }}>A-DISP-01..05</span>}>
+              {alerts.length === 0
+                ? <EmptyState>No active alerts.</EmptyState>
+                : alerts.map((a, i) => (
+                  <div key={i} style={{
+                    display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 8,
+                    background: a.level === 'red' ? RED_BG : AMBER_BG, marginBottom: 6, fontSize: 11,
+                    color: a.level === 'red' ? RED : AMBER,
+                  }}>
+                    <i className={`ti ${a.level === 'red' ? 'ti-alert-octagon' : 'ti-alert-triangle'}`} style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }} />
+                    <span>{a.message}</span>
                   </div>
-                )
+                ))
               }
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: INK3, marginTop: 4 }}>
-                {data.onTimeDispatch.map(o => <span key={o.month}>{o.month}</span>)}
-              </div>
-              <div style={{ background: NEUTRAL_BG, borderRadius: 8, padding: '8px 12px', fontSize: 10.5, color: INK2, marginTop: 8 }}>
-                Top delay reasons — not tracked in ERPNext (no delay-reason field on Delivery Note or Sales Order).
-              </div>
             </Card>
           </div>
         </div>
@@ -574,11 +590,13 @@ export default function DispatchHeadPage() {
             <Card title="Quick actions" icon="ti-bolt">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <QuickAction icon="ti-file-plus" label="Create Delivery Note" href={erpUrl('delivery-note/new')} />
-                <QuickAction icon="ti-file-certificate" label="e-Way Bill Log" href={erpUrl('e-waybill-log')} />
-                <QuickAction icon="ti-send" label="Draft Delivery Notes" href={erpUrl('delivery-note?docstatus=0')} />
+                <QuickAction icon="ti-file-certificate" label="Generate e-Way Bill" href={erpUrl('e-waybill-log/new')} />
+                <QuickAction icon="ti-truck" label="Book Vehicle" href={erpUrl('delivery-note?docstatus=0')} />
+                <QuickAction icon="ti-send" label="Submit Delivery Note" href={erpUrl('delivery-note?docstatus=0')} />
+                <QuickAction icon="ti-check" label="Log Customer Receipt" href={erpUrl('delivery-note?docstatus=1&status=Completed')} />
+                <QuickAction icon="ti-checklist" label="Dispatch Checklist" href={erpUrl('delivery-note?docstatus=0')} />
                 <QuickAction icon="ti-file-invoice" label="Pending Invoices" href={erpUrl('sales-invoice?docstatus=1&update_stock=0')} />
-                <QuickAction icon="ti-checklist" label="Sales Orders Pending" href={erpUrl('sales-order?status=["in",["To Deliver","To Deliver and Bill"]]')} />
-                <QuickAction icon="ti-report" label="Dispatch Report" href={erpUrl('query-report/Delivery Note Trends')} />
+                <QuickAction icon="ti-report" label="Dispatch Report" href={erpUrl('query-report/FG Dispatch Report')} />
               </div>
             </Card>
           </div>
