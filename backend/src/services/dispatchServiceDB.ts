@@ -119,22 +119,19 @@ async function getDispatchStageFlow(): Promise<DispatchStageFlow> {
     docs_complete: number; vehicle_booked: number; dispatched: number
   }>(
     `SELECT
-        SUM(stage='QC pending')     AS qc_pending,
-        SUM(stage='QC cleared')     AS qc_cleared,
-        SUM(stage='Docs pending')   AS docs_pending,
-        SUM(stage='Docs complete')  AS docs_complete,
-        SUM(stage='Vehicle booked') AS vehicle_booked,
-        SUM(stage='Dispatched')     AS dispatched
+        d.qc_pending, d.qc_cleared, d.docs_pending, d.docs_complete, d.vehicle_booked,
+        ( SELECT COUNT(*) FROM \`tabDelivery Note\` dn
+          WHERE dn.docstatus=1 AND dn.is_return=0
+            AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+            AND dn.posting_date <= CURDATE() ) AS dispatched
      FROM (
        SELECT
-         CASE
-           WHEN f.has_qc = 0                                                THEN 'QC pending'
-           WHEN f.has_si = 1 AND f.has_po = 1 AND f.has_eway = 1
-                AND IFNULL(dn.vehicle_no,'') <> ''                         THEN 'Vehicle booked'
-           WHEN f.has_si = 1 AND f.has_po = 1 AND f.has_eway = 1           THEN 'Docs complete'
-           WHEN f.has_si = 1 OR f.has_po = 1 OR f.has_eway = 1             THEN 'Docs pending'
-           ELSE 'QC cleared'
-         END AS stage
+         SUM(f.has_qc = 0)                                                    AS qc_pending,
+         SUM(f.has_qc = 1)                                                    AS qc_cleared,
+         SUM(f.has_qc=1 AND NOT (f.has_si=1 AND f.has_po=1 AND f.has_eway=1)) AS docs_pending,
+         SUM(f.has_qc=1 AND f.has_si=1 AND f.has_po=1 AND f.has_eway=1)       AS docs_complete,
+         SUM(f.has_qc=1 AND f.has_si=1 AND f.has_po=1 AND f.has_eway=1
+             AND IFNULL(dn.vehicle_no,'')<>'')                               AS vehicle_booked
        FROM \`tabDelivery Note\` dn
        JOIN (
          SELECT dn2.name,
@@ -147,14 +144,7 @@ async function getDispatchStageFlow(): Promise<DispatchStageFlow> {
          FROM \`tabDelivery Note\` dn2 WHERE dn2.docstatus=0 AND dn2.is_return=0
        ) f ON f.name = dn.name
        WHERE dn.docstatus=0 AND dn.is_return=0
-
-       UNION ALL
-       SELECT 'Dispatched'
-       FROM \`tabDelivery Note\` dn
-       WHERE dn.docstatus=1 AND dn.is_return=0
-         AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
-         AND dn.posting_date <= CURDATE()
-     ) x`,
+     ) d`,
   )
   const r = rows[0]
   return {
@@ -328,28 +318,28 @@ async function getDispatchScheduleThisWeek(): Promise<DispatchScheduleRow[]> {
 
 async function getOnTimeDispatch(): Promise<OnTimeDispatchMonth[]> {
   const rows = await query<{
-    month: string; total_dispatches: number; on_time: number; on_time_pct: number
+    month: string; total_dispatched: number; on_time: number; on_time_pct: number
   }>(
     `SELECT
-        DATE_FORMAT(x.posting_date, '%Y-%m')                         AS month,
-        COUNT(*)                                                     AS total_dispatches,
-        SUM(x.posting_date <= x.promised)                           AS on_time,
-        ROUND(SUM(x.posting_date <= x.promised) / COUNT(*) * 100, 0) AS on_time_pct
+        DATE_FORMAT(t.posting_date, '%Y-%m')          AS month,
+        COUNT(*)                                       AS total_dispatched,
+        SUM(t.on_time)                                 AS on_time,
+        ROUND(100 * SUM(t.on_time) / COUNT(*), 1)      AS on_time_pct
      FROM (
-       SELECT dn.name, dn.posting_date, MAX(so.delivery_date) AS promised
+       SELECT dn.name, dn.posting_date,
+              CASE WHEN dn.posting_date <= MIN(so.delivery_date) THEN 1 ELSE 0 END AS on_time
        FROM \`tabDelivery Note\` dn
        JOIN \`tabDelivery Note Item\` dni ON dni.parent = dn.name
        JOIN \`tabSales Order\` so ON so.name = dni.against_sales_order
        WHERE dn.docstatus = 1 AND dn.is_return = 0
-         AND dn.posting_date >= DATE_FORMAT(CURDATE() - INTERVAL 2 MONTH, '%Y-%m-01')
+         AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
        GROUP BY dn.name, dn.posting_date
-     ) x
-     WHERE x.promised IS NOT NULL
-     GROUP BY month
+     ) t
+     GROUP BY DATE_FORMAT(t.posting_date, '%Y-%m')
      ORDER BY month`,
   )
   return rows.map(r => ({
-    month: r.month, totalDispatches: Number(r.total_dispatches),
+    month: r.month, totalDispatches: Number(r.total_dispatched),
     onTime: Number(r.on_time), onTimePct: Number(r.on_time_pct),
   }))
 }
