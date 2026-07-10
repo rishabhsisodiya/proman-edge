@@ -51,7 +51,7 @@ function weekEndISO() {
 }
 
 const ERP_URLS: Record<string, string> = {
-  prPending:  '/app/purchase-order?workflow_state=["like","Awaiting%25"]',
+  prPending:  '/app/purchase-order?workflow_state=Awaiting%20PM%20Approval',
   poOpen:     '/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]',
   poOverdue:  `/app/purchase-order?status=["in",["To Receive","To Receive and Bill"]]&per_received=["<",100]&schedule_date=["<","${todayISO()}"]`,
   critical:   '/app/bin',
@@ -124,7 +124,7 @@ function CardTitle({ icon, title, right, note }: {
   )
 }
 
-function ViewAll({ href, label = 'View all in ERPNext ↗' }: { href: string; label?: string }) {
+function ViewAll({ href, label = 'View all ↗' }: { href: string; label?: string }) {
   return (
     <a href={href} target="_blank" rel="noreferrer"
       style={{ fontSize: 11, color: NAVY, textDecoration: 'none', fontWeight: 500 }}>
@@ -383,53 +383,49 @@ function ApprovalQueue({ rows, erpBase, onRowClick, onApprove, onReturn }: {
   )
 }
 
-// ── ZONE 3b: Overdue PO Tracker ───────────────────────────────────────────────
+// ── ZONE 3b: GRNs Awaiting Invoice ───────────────────────────────────────────
 
-function OverduePOTracker({ rows, erpBase, onRowClick, onLogFollowUp }: {
-  rows: OverduePO[]
-  erpBase: string
-  onRowClick: (poNo: string) => void
-  onLogFollowUp: (poNo: string, supplier: string, scheduleDate: string) => void
-}) {
+function GRNsAwaitingInvoiceCard({ rows, erpBase }: { rows: InvoiceUnmatchedRow[]; erpBase: string }) {
   return (
     <Card>
       <CardTitle
-        icon="ti-truck-off"
-        title="Overdue PO tracker"
-        note="red first"
-        right={
-          <span style={{ fontSize: 10, fontWeight: 700, background: RED_BG, color: RED, padding: '2px 8px', borderRadius: 99 }}>
-            {rows.length} overdue
-          </span>
-        }
+        icon="ti-file-invoice"
+        title="GRNs awaiting invoice"
+        note="oldest first"
+        right={<ViewAll href={erpBase + '/app/purchase-receipt?status=To%20Bill&is_return=0'} />}
       />
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead>
-            <tr>{['PO No.','Vendor','PO value','Scheduled','Overdue','% Recd','Last follow-up','Action'].map(h => <Th key={h}>{h}</Th>)}</tr>
+            <tr>{['GRN No.','Vendor','Amount','Linked PO','Age',''].map(h => <Th key={h}>{h}</Th>)}</tr>
           </thead>
           <tbody>
-            {rows.map(p => (
-              <tr key={p.poNo} onClick={() => onRowClick(p.poNo)}
-                style={{ cursor: 'pointer' }}
+            {rows.map(r => (
+              <tr key={r.grnNo}
                 onMouseEnter={e => (e.currentTarget.style.background = BG)}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                <Td style={{ boxShadow: `inset 3px 0 0 ${RAG_HX[p.rag]}` }}>
-                  <span style={{ color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' }}>{p.poNo}</span>
+                <Td style={{ boxShadow: `inset 3px 0 0 ${RAG_HX[r.rag]}` }}>
+                  <a href={`${erpBase}/app/purchase-receipt/${encodeURIComponent(r.grnNo)}`} target="_blank" rel="noreferrer"
+                    style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>{r.grnNo}</a>
                 </Td>
-                <Td style={{ color: INK2 }}>{p.supplier}</Td>
-                <Td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtMoney(p.poValue)}</Td>
-                <Td style={{ color: INK2, whiteSpace: 'nowrap' }}>{fmtDate(p.scheduleDate)}</Td>
-                <Td><Tag rag={p.rag} label={`${p.daysOverdue}d`} /></Td>
-                <Td><ReceiptBar pct={p.perReceived} /></Td>
-                <Td style={{ color: INK2, fontSize: 10 }}>{daysAgo(p.lastFollowup)}</Td>
+                <Td style={{ color: INK2 }}>{r.supplier}</Td>
+                <Td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtMoney(r.grandTotal)}</Td>
+                <Td style={{ color: INK2, fontSize: 10 }}>
+                  {r.linkedPo
+                    ? <a href={`${erpBase}/app/purchase-order/${encodeURIComponent(r.linkedPo)}`} target="_blank" rel="noreferrer"
+                        style={{ color: NAVY, textDecoration: 'none' }}>{r.linkedPo}</a>
+                    : '—'}
+                </Td>
+                <Td><Tag rag={r.rag} label={`${r.daysSince}d`} /></Td>
                 <Td>
-                  <MiniBtn variant="amber" onClick={e => { e.stopPropagation(); onLogFollowUp(p.poNo, p.supplier, p.scheduleDate) }}>Log</MiniBtn>
+                  <a href={`${erpBase}/app/purchase-invoice/new?purchase_receipt=${encodeURIComponent(r.grnNo)}`} target="_blank" rel="noreferrer">
+                    <MiniBtn variant="grey" onClick={e => e.stopPropagation()}>Create Invoice</MiniBtn>
+                  </a>
                 </Td>
               </tr>
             ))}
             {!rows.length && (
-              <tr><td colSpan={8} style={{ padding: '20px 8px', color: INK3, fontSize: 12, textAlign: 'center' }}>No overdue POs</td></tr>
+              <tr><td colSpan={6} style={{ padding: '20px 8px', color: INK3, fontSize: 12, textAlign: 'center' }}>No GRNs awaiting invoice</td></tr>
             )}
           </tbody>
         </table>
@@ -649,31 +645,33 @@ function SpendGaugeCard({ gauge, spendCat, onCatChange }: {
 
 // ── ZONE 5: Action Queue (3 tabs) ─────────────────────────────────────────────
 
-const ACTION_TABS = ['GRNs pending today', 'PO follow-ups due', 'Invoices awaiting GRN match'] as const
+const ACTION_TABS = ['GRNs pending today', 'PO follow-ups due', 'Overdue PO tracker'] as const
 
-function ActionQueueCard({ queue, erpBase, onLogGRN, onLogFollowUp }: {
+function ActionQueueCard({ queue, erpBase, overduePOs, onLogGRN, onLogFollowUp, onRowClick }: {
   queue: ActionQueue
   erpBase: string
+  overduePOs: OverduePO[]
   onLogGRN:       (poNo: string) => void
   onLogFollowUp:  (poNo: string, supplier: string, scheduleDate: string) => void
+  onRowClick:     (poNo: string) => void
 }) {
   const [tab, setTab] = useState(0)
 
   const counts = [
     queue.grnsPending.length,
     queue.followUpsDue.length,
-    queue.invoicesUnmatched.length,
+    overduePOs.length,
   ]
   const tabRag = [
-    queue.grnsPending.length > 0        ? 'red'   : 'green',
-    queue.followUpsDue.length > 0        ? 'amber' : 'green',
-    queue.invoicesUnmatched.some(i => i.rag === 'red') ? 'red' : queue.invoicesUnmatched.length > 0 ? 'amber' : 'green',
+    queue.grnsPending.length > 0 ? 'red'   : 'green',
+    queue.followUpsDue.length > 0 ? 'amber' : 'green',
+    overduePOs.some(p => p.rag === 'red') ? 'red' : overduePOs.length > 0 ? 'amber' : 'green',
   ]
 
   const ERP_LINKS = [
     erpBase + ERP_URLS.grnDue,
     erpBase + ERP_URLS.poOverdue,
-    erpBase + ERP_URLS.invoices,
+    erpBase + ERP_URLS.poOverdue,
   ]
 
   return (
@@ -756,26 +754,29 @@ function ActionQueueCard({ queue, erpBase, onLogGRN, onLogFollowUp }: {
 
         {tab === 2 && (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-            <thead><tr>{['Invoice','Vendor','Amount','Age',''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['PO No.','Vendor','PO value','Scheduled','Overdue','% Recd','Last follow-up',''].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
             <tbody>
-              {queue.invoicesUnmatched.map((r: InvoiceUnmatchedRow) => (
-                <tr key={r.invoice}
+              {overduePOs.map(p => (
+                <tr key={p.poNo} onClick={() => onRowClick(p.poNo)}
+                  style={{ cursor: 'pointer' }}
                   onMouseEnter={e => (e.currentTarget.style.background = BG)}
                   onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                  <Td><a href={`${erpBase}/app/purchase-invoice/${encodeURIComponent(r.invoice)}`} target="_blank" rel="noreferrer"
-                    style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>{r.invoice}</a></Td>
-                  <Td style={{ color: INK2 }}>{r.supplier}</Td>
-                  <Td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtMoney(r.grandTotal)}</Td>
-                  <Td><Tag rag={r.rag} label={`${r.daysSince}d`} /></Td>
+                  <Td style={{ boxShadow: `inset 3px 0 0 ${RAG_HX[p.rag]}` }}>
+                    <span style={{ color: NAVY, fontWeight: 600, whiteSpace: 'nowrap' }}>{p.poNo}</span>
+                  </Td>
+                  <Td style={{ color: INK2 }}>{p.supplier}</Td>
+                  <Td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtMoney(p.poValue)}</Td>
+                  <Td style={{ color: INK2, whiteSpace: 'nowrap' }}>{fmtDate(p.scheduleDate)}</Td>
+                  <Td><Tag rag={p.rag} label={`${p.daysOverdue}d`} /></Td>
+                  <Td><ReceiptBar pct={p.perReceived} /></Td>
+                  <Td style={{ color: INK2, fontSize: 10 }}>{daysAgo(p.lastFollowup)}</Td>
                   <Td>
-                    <a href={`${erpBase}/app/purchase-invoice/${encodeURIComponent(r.invoice)}`} target="_blank" rel="noreferrer">
-                      <MiniBtn variant="grey" onClick={e => e.stopPropagation()}>Match GRN</MiniBtn>
-                    </a>
+                    <MiniBtn variant="amber" onClick={e => { e.stopPropagation(); onLogFollowUp(p.poNo, p.supplier, p.scheduleDate) }}>Log</MiniBtn>
                   </Td>
                 </tr>
               ))}
-              {!queue.invoicesUnmatched.length && (
-                <tr><td colSpan={5} style={{ padding: '20px 8px', color: INK3, fontSize: 12, textAlign: 'center' }}>No unmatched invoices</td></tr>
+              {!overduePOs.length && (
+                <tr><td colSpan={8} style={{ padding: '20px 8px', color: INK3, fontSize: 12, textAlign: 'center' }}>No overdue POs</td></tr>
               )}
             </tbody>
           </table>
@@ -1381,14 +1382,9 @@ export default function ProcurementHeadPage() {
           onReturn={poNo  => handleAction(poNo, 'return')}
         />
 
-        {/* ZONE 3b: Overdue + Shortage side by side */}
+        {/* ZONE 3b: GRNs awaiting invoice + Shortage side by side */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 11 }}>
-          <OverduePOTracker
-            rows={data.overduePOs}
-            erpBase={erpBase}
-            onRowClick={openDrawer}
-            onLogFollowUp={(poNo, supplier, scheduleDate) => handleAction(poNo, 'followup', undefined, { supplier, scheduleDate })}
-          />
+          <GRNsAwaitingInvoiceCard rows={data.actionQueue.invoicesUnmatched} erpBase={erpBase} />
           <CriticalShortageTable rows={data.criticalShortages} erpBase={erpBase} />
         </div>
 
@@ -1411,6 +1407,8 @@ export default function ProcurementHeadPage() {
         <ActionQueueCard
           queue={data.actionQueue}
           erpBase={erpBase}
+          overduePOs={data.overduePOs}
+          onRowClick={openDrawer}
           onLogGRN={async poNo => {
             const result = await makeGRN(poNo)
             if (result.ok) {

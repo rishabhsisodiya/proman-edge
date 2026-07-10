@@ -108,11 +108,12 @@ export interface FollowUpRow {
 }
 
 export interface InvoiceUnmatchedRow {
-  invoice: string
+  grnNo: string
   supplier: string
   grandTotal: number
   postingDate: string
   daysSince: number
+  linkedPo: string | null
   rag: Rag
 }
 

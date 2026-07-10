@@ -303,7 +303,7 @@ async function getApprovalQueue(): Promise<ApprovalQueueItem[]> {
      LEFT JOIN \`tabUser\`     u  ON u.name     = po.owner
      LEFT JOIN \`tabEmployee\` e  ON e.user_id  = po.owner
      LEFT JOIN \`tabPurchase Order Item\` fi ON fi.parent = po.name AND fi.idx = 1
-     WHERE po.workflow_state LIKE 'Awaiting%Approval'
+     WHERE po.workflow_state = 'Awaiting PM Approval'
      ORDER BY po.creation ASC
      LIMIT 10`,
   )
@@ -590,20 +590,20 @@ async function getActionQueue(): Promise<ActionQueue> {
        LIMIT 10`,
     ),
 
-    // Tab 3: Invoices awaiting GRN match
-    query<{ invoice: string; supplier: string; grand_total: number; posting_date: string; days_since: number }>(
-      `SELECT pi.name AS invoice, pi.supplier, pi.grand_total, pi.posting_date,
-              DATEDIFF(CURDATE(), pi.posting_date) AS days_since
-       FROM \`tabPurchase Invoice\` pi
-       WHERE pi.docstatus = 1
-         AND COALESCE(pi.update_stock, 0) = 0
-         AND pi.status NOT IN ('Cancelled','Return')
+    // Tab 3: GRNs awaiting invoice
+    query<{ grn_no: string; supplier: string; grand_total: number; posting_date: string; days_since: number; linked_po: string | null }>(
+      `SELECT pr.name AS grn_no, pr.supplier, pr.grand_total, pr.posting_date,
+              DATEDIFF(CURDATE(), pr.posting_date) AS days_since,
+              (SELECT pri.purchase_order FROM \`tabPurchase Receipt Item\` pri
+               WHERE pri.parent = pr.name AND IFNULL(pri.purchase_order,'') <> '' LIMIT 1) AS linked_po
+       FROM \`tabPurchase Receipt\` pr
+       WHERE pr.docstatus = 1 AND pr.is_return = 0
+         AND pr.status NOT IN ('Closed')
          AND NOT EXISTS (
            SELECT 1 FROM \`tabPurchase Invoice Item\` pii
-           WHERE pii.parent = pi.name
-             AND pii.purchase_receipt IS NOT NULL AND pii.purchase_receipt <> ''
+           WHERE pii.purchase_receipt = pr.name AND pii.docstatus = 1
          )
-       ORDER BY pi.posting_date ASC
+       ORDER BY pr.posting_date DESC
        LIMIT 10`,
     ),
   ])
@@ -625,13 +625,14 @@ async function getActionQueue(): Promise<ActionQueue> {
     })),
     invoicesUnmatched: invoices.map(r => {
       const days = Number(r.days_since)
-      const rag: Rag = days > 5 ? 'red' : 'amber'
+      const rag: Rag = days > 30 ? 'red' : days > 7 ? 'amber' : 'green'
       return {
-        invoice:     r.invoice,
+        grnNo:       r.grn_no,
         supplier:    r.supplier,
         grandTotal:  r.grand_total,
         postingDate: r.posting_date,
         daysSince:   days,
+        linkedPo:    r.linked_po,
         rag,
       }
     }),
