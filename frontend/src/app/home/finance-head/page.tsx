@@ -41,6 +41,31 @@ const BUCKET_COLOR: Record<string, string> = {
 const ENTITY_LABELS = ['PISPL', 'ACE', 'PROMAX', 'QMS Pro', 'Dynatek'] as const
 const ENTITY_MATCH: Record<string, string | undefined> = {
   PISPL: 'Proman Infrastructure Services Private Limited',
+  ACE: 'ACE',
+  PROMAX: 'PROMAX',
+  'QMS Pro': 'QMS Pro',
+  Dynatek: 'Dynatek',
+}
+
+// ACE/PROMAX/QMS Pro/Dynatek are Tally-only today (no DB access, data comes from the client's
+// xlsx sheets) but each is expected to get its own ERPNext/Frappe site eventually, per the
+// project's Sites Reference. Per-site URL below, so "View all" always redirects somewhere —
+// even 404 — rather than silently going to PISPL's site with a bogus company filter.
+// ACE/PROMAX/QMS Pro domains are confirmed (project CLAUDE.md Sites Reference); Dynatek's isn't
+// listed there yet (that table only has "Bluestone" as the 5th entity) — using the same naming
+// convention as a placeholder until Shivam/the client confirms Dynatek's real site.
+const ENTITY_ERP_BASE: Record<string, string> = {
+  ACE: 'https://ace.frappe.cloud',
+  PROMAX: 'https://promax.frappe.cloud',
+  'QMS Pro': 'https://qmspro.frappe.cloud',
+  Dynatek: 'https://dynatek.frappe.cloud',
+}
+
+// Resolves the ERP base URL to use for a given entity filter: PISPL uses the real, live
+// base URL from the backend (data.erpBaseUrl); the other 4 use their own placeholder site.
+function erpBaseForEntity(defaultBase: string, entityLabel: string | null): string {
+  if (entityLabel && ENTITY_ERP_BASE[entityLabel]) return ENTITY_ERP_BASE[entityLabel]
+  return defaultBase
 }
 
 function filterByLabel<T extends { entity: string }>(items: T[], label: string | null): { rows: T[]; unavailable: boolean } {
@@ -153,7 +178,11 @@ const URGENCY_COLOR = (daysAway: number) => daysAway <= 1 ? { bg: RED_BG, fg: RE
 const AQ_ERP_PATH = ['/app/purchase-invoice', '/app/journal-entry'] as const
 
 // Per Shivam's v3 doc: bare paths, no extra filters — just the entity's site/company.
-function aqErpLinkFor(base: string, tab: 0 | 1, entityLabel: string | null): string {
+// Redirects to the selected entity's own ERP site (see erpBaseForEntity) — for ACE/PROMAX/
+// QMS Pro/Dynatek that site may not exist yet (404), which is fine; better than silently
+// pointing at PISPL's ERPNext with a bogus company filter.
+function aqErpLinkFor(defaultBase: string, tab: 0 | 1, entityLabel: string | null): string {
+  const base = erpBaseForEntity(defaultBase, entityLabel)
   const path = AQ_ERP_PATH[tab]
   const match = entityLabel ? ENTITY_MATCH[entityLabel] : undefined
   const qs = match ? `?company=${encodeURIComponent(match)}` : ''
@@ -162,7 +191,9 @@ function aqErpLinkFor(base: string, tab: 0 | 1, entityLabel: string | null): str
 
 // Builds a "View all" link for a card, adding a company filter if a real entity is selected.
 // pathWithQuery may already contain its own query string (e.g. the AP ageing-bucket params).
-function cardErpLink(base: string, pathWithQuery: string, entityLabel: string | null): string {
+// Redirects to the selected entity's own ERP site — see aqErpLinkFor's comment above.
+function cardErpLink(defaultBase: string, pathWithQuery: string, entityLabel: string | null): string {
+  const base = erpBaseForEntity(defaultBase, entityLabel)
   const match = entityLabel ? ENTITY_MATCH[entityLabel] : undefined
   if (!match) return `${base}${pathWithQuery}`
   const sep = pathWithQuery.includes('?') ? '&' : '?'
@@ -761,7 +792,7 @@ export default function FinanceHeadPage() {
                   : debtorsResult.rows.filter(d => d.buckets.length > 0).slice(0, 10).map(d => <DebtorBar key={d.customer + d.entity} debtor={d} />)
               }
               <EntityFilterBar active={rcvEntity} onSelect={setRcvEntity} />
-              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Receivable', rcvEntity)} />}
+              <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Receivable', rcvEntity)} />
             </Card>
           </div>
 
@@ -797,7 +828,7 @@ export default function FinanceHeadPage() {
                   ))
               }
               <EntityFilterBar active={poEntity} onSelect={setPoEntity} />
-              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/purchase-order?status=Draft&workflow_state=Awaiting AM Approval', poEntity)} />}
+              <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/purchase-order?status=Draft&workflow_state=Awaiting AM Approval', poEntity)} />
             </Card>
 
             <Card title="Revenue vs Target" icon="ti-target">
@@ -829,7 +860,7 @@ export default function FinanceHeadPage() {
                     })
               }
               <EntityFilterBar active={payEntity} onSelect={setPayEntity} />
-              {data.erpBaseUrl && <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Payable', payEntity)} />}
+              <ViewAllBottom href={cardErpLink(data.erpBaseUrl, '/app/query-report/Accounts Payable', payEntity)} />
             </Card>
           </div>
 

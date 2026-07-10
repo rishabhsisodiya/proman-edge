@@ -34,6 +34,7 @@ router.get('/homepage', async (_req: Request, res: Response) => {
     res.json({ success: true, data })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[finance/homepage] 500:', err instanceof Error ? err.stack ?? err.message : err)
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -51,6 +52,7 @@ router.post('/action-queue/release', async (req: Request, res: Response) => {
     res.json({ success: true, data: result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[finance/action-queue/release] 500:', err instanceof Error ? err.stack ?? err.message : err)
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -68,6 +70,7 @@ router.post('/po-approval/approve', async (req: Request, res: Response) => {
     res.json({ success: true, data: result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[finance/po-approval/approve] 500:', err instanceof Error ? err.stack ?? err.message : err)
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -85,6 +88,7 @@ router.post('/action-queue/approve-je', async (req: Request, res: Response) => {
     res.json({ success: true, data: result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[finance/action-queue/approve-je] 500:', err instanceof Error ? err.stack ?? err.message : err)
     res.status(500).json({ success: false, error: message })
   }
 })

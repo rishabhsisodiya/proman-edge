@@ -3,6 +3,7 @@ import { frappePost } from '../lib/frappeClient'
 import { getFinanceSparkline } from './financeSnapshotService'
 import { getGmTargetPct } from './financeSettingsService'
 import { rupees } from '../lib/format'
+import * as siteSheets from './financeSiteSheetService'
 import type {
   FinanceHomepageData, CashBank, CashBankAccount, EntityAmountWithTrend,
   Revenue, PeriodStat, Period, SparkPoint,
@@ -797,7 +798,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
   const erpBaseUrl = (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, '')
   const alerts = await buildAlerts(overdueReceivables, cashBank, erpBaseUrl, companies)
 
-  return {
+  const homepage: FinanceHomepageData = {
     syncedAt: new Date().toISOString(),
     erpBaseUrl,
     entities: companies,
@@ -816,4 +817,9 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
     revenueVsTarget:          { blocked: true, reason: 'No Revenue Target doctype exists yet. Awaiting ERP-side setup.' },
     divisionGrossMarginSplit: { blocked: true, reason: 'Sales Invoice.cost_center is populated on <1% of records — no usable division split. Blended Gross Margin above is real (Decision 5 resolved); the division-wise breakdown is still blocked on cost_center coverage (Decision 3).' },
   }
+
+  // ACE / PROMAX / QMS Pro / Dynatek — no DB access, client pastes data into an xlsx per
+  // site (backend/data/site-sheets/). Merged in here, isolated in financeSiteSheetService.ts
+  // so this ingestion path can be swapped out later without touching the DB queries above.
+  return siteSheets.mergeSiteSheetsIntoHomepage(homepage)
 }
