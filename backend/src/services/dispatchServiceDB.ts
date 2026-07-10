@@ -24,10 +24,10 @@ async function getReadyToDispatch(): Promise<ReadyToDispatch> {
          SELECT 1 FROM \`tabWork Order\` wo
          WHERE wo.sales_order = so.name AND wo.docstatus = 1
            AND EXISTS (SELECT 1 FROM \`tabJob Card\` jc
-                       WHERE jc.work_order = wo.name AND jc.status = 'Completed')
-           AND EXISTS (SELECT 1 FROM \`tabQuality Inspection\` qi
-                       WHERE qi.reference_type = 'Work Order' AND qi.reference_name = wo.name
-                         AND qi.status = 'Accepted')
+                       WHERE jc.work_order = wo.name AND jc.status = 'Completed'
+                         AND EXISTS (SELECT 1 FROM \`tabQuality Inspection\` qi
+                                     WHERE qi.reference_type = 'Job Card' AND qi.reference_name = jc.name
+                                       AND qi.status = 'Accepted'))
        )`,
   )
   return { count: Number(rows[0]?.ready_to_dispatch ?? 0) }
@@ -240,27 +240,23 @@ export async function getDocumentationChecklist(dnName: string): Promise<Documen
 
 async function getVehicleBooking(): Promise<VehicleBookingRow[]> {
   const rows = await query<{
-    dn_no: string; customer_name: string; vehicle_no: string | null
-    transporter_name: string | null; lr_no: string | null; lr_date: string | null; status: string
+    dn_no: string; customer: string; vehicle_no: string | null; transporter_receipt_no: string | null
   }>(
     `SELECT
-        dn.name           AS dn_no,
-        dn.customer_name,
+        dn.name          AS dn_no,
+        dn.customer_name AS customer,
         dn.vehicle_no,
-        dn.transporter_name,
-        dn.lr_no,
-        dn.lr_date,
-        dn.status
+        dn.lr_no         AS transporter_receipt_no
      FROM \`tabDelivery Note\` dn
      WHERE dn.docstatus = 0 AND dn.is_return = 0
        AND ( IFNULL(dn.transporter, '') = ''
           OR IFNULL(dn.lr_no, '')       = ''
           OR IFNULL(dn.lr_date, '')     = '' )
-     ORDER BY dn.posting_date ASC`,
+     ORDER BY dn.creation ASC`,
   )
   return rows.map(r => ({
-    dnNo: r.dn_no, customerName: r.customer_name, vehicleNo: r.vehicle_no,
-    transporterName: r.transporter_name, lrNo: r.lr_no, lrDate: r.lr_date, status: r.status,
+    dnNo: r.dn_no, customerName: r.customer, vehicleNo: r.vehicle_no,
+    transporterReceiptNo: r.transporter_receipt_no,
   }))
 }
 

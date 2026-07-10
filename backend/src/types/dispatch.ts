@@ -64,10 +64,7 @@ export interface VehicleBookingRow {
   dnNo: string
   customerName: string
   vehicleNo: string | null
-  transporterName: string | null
-  lrNo: string | null
-  lrDate: string | null
-  status: string
+  transporterReceiptNo: string | null
 }
 
 // ── W-DISP-10 e-Way bill status (table) — was W-DSP-08 ───────────────────────

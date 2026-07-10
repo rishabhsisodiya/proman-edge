@@ -109,7 +109,7 @@ function ewayStatusTone(status: string): 'd' | 'w' | 's' | 'i' {
   return 's'
 }
 
-function vehicleBookingTone(row: { vehicleNo: string | null; transporterName: string | null; lrNo: string | null; lrDate: string | null }): 'd' | 'w' {
+function vehicleBookingTone(row: { vehicleNo: string | null }): 'd' | 'w' {
   return row.vehicleNo ? 'w' : 'd'
 }
 
@@ -380,23 +380,30 @@ export default function DispatchHeadPage() {
               </div>
               {data.pipelineTable.length === 0
                 ? <EmptyState>No draft delivery notes in the pipeline.</EmptyState>
-                : <Table
-                    widths={['18%', '24%', '22%', '18%', '18%']}
-                    head={['DN no.', 'Customer', 'Product', 'Target date', 'Blocker']}
-                    rows={data.pipelineTable.slice(0, 10).map(r => (
-                      <>
-                        <td
-                          style={{ color: NAVY, fontWeight: 700, cursor: 'pointer', ...rowStripe(blockerTone(r.blocker)) }}
-                          onClick={() => setSelectedDn(r.dnNo)}
-                          title="View documentation checklist"
-                        >{r.dnNo}</td>
-                        <td title={r.customerName}>{r.customerName}</td>
-                        <td title={r.product}>{r.product}</td>
-                        <td>{fmtDate(r.targetDate)}</td>
-                        <td style={{ overflow: 'visible' }}><Pill tone={blockerTone(r.blocker)}>{r.blocker}</Pill></td>
-                      </>
-                    ))}
-                  />
+                : <>
+                    <Table
+                      widths={['18%', '24%', '22%', '18%', '18%']}
+                      head={['DN no.', 'Customer', 'Product', 'Target date', 'Blocker']}
+                      rows={data.pipelineTable.slice(0, 10).map(r => (
+                        <>
+                          <td
+                            style={{ color: NAVY, fontWeight: 700, cursor: 'pointer', ...rowStripe(blockerTone(r.blocker)) }}
+                            onClick={() => setSelectedDn(r.dnNo)}
+                          >
+                            <a href={erpUrl(`delivery-note/${encodeURIComponent(r.dnNo)}`)} target="_blank" rel="noreferrer"
+                              style={{ color: 'inherit', textDecoration: 'none' }} title="Open in ERPNext">
+                              {r.dnNo}
+                            </a>
+                          </td>
+                          <td title={r.customerName}>{r.customerName}</td>
+                          <td title={r.product}>{r.product}</td>
+                          <td>{fmtDate(r.targetDate)}</td>
+                          <td style={{ overflow: 'visible' }}><Pill tone={blockerTone(r.blocker)}>{r.blocker}</Pill></td>
+                        </>
+                      ))}
+                    />
+                    {data.pipelineTable.length > 10 && <ViewAllButton href={erpUrl('delivery-note?docstatus=0')} />}
+                  </>
               }
             </Card>
           </div>
@@ -440,21 +447,23 @@ export default function DispatchHeadPage() {
             <Card title="Vehicle booking status" icon="ti-truck-loading" fill right={<Pill tone="d">{data.vehicleBooking.length} not booked</Pill>}>
               {data.vehicleBooking.length === 0
                 ? <EmptyState>All draft delivery notes have transport details filled.</EmptyState>
-                : <Table
-                    widths={['22%', '26%', '18%', '17%', '17%']}
-                    head={['DN no.', 'Customer', 'Vehicle', 'Transporter', 'LR no.']}
-                    rows={data.vehicleBooking.slice(0, 8).map(v => (
-                      <>
-                        <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(vehicleBookingTone(v)) }}>
-                          <a href={erpUrl(`delivery-note/${encodeURIComponent(v.dnNo)}`)} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{v.dnNo}</a>
-                        </td>
-                        <td title={v.customerName}>{v.customerName}</td>
-                        <td>{v.vehicleNo ?? '—'}</td>
-                        <td title={v.transporterName ?? undefined}>{v.transporterName ?? '—'}</td>
-                        <td>{v.lrNo ?? '—'}</td>
-                      </>
-                    ))}
-                  />
+                : <>
+                    <Table
+                      widths={['28%', '32%', '20%', '20%']}
+                      head={['DN no.', 'Customer', 'Vehicle', 'LR no.']}
+                      rows={data.vehicleBooking.slice(0, 10).map(v => (
+                        <>
+                          <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(vehicleBookingTone(v)) }}>
+                            <a href={erpUrl(`delivery-note/${encodeURIComponent(v.dnNo)}`)} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{v.dnNo}</a>
+                          </td>
+                          <td title={v.customerName}>{v.customerName}</td>
+                          <td>{v.vehicleNo ?? '—'}</td>
+                          <td>{v.transporterReceiptNo ?? '—'}</td>
+                        </>
+                      ))}
+                    />
+                    {data.vehicleBooking.length > 10 && <ViewAllButton href={erpUrl('delivery-note?docstatus=0')} />}
+                  </>
               }
 
               <div style={{ marginTop: 12 }}>
@@ -463,18 +472,27 @@ export default function DispatchHeadPage() {
                 </div>
                 {ewayBills.length === 0
                   ? <EmptyState>No active e-way bills in the current window.</EmptyState>
-                  : <Table
-                      widths={['28%', '24%', '24%', '24%']}
-                      head={['e-Way bill', 'Party', 'Valid until', 'Status']}
-                      rows={ewayBills.slice(0, 8).map(e => (
-                        <>
-                          <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(ewayStatusTone(e.status)) }} title={e.linkedDoc}>{e.ewayBill}</td>
-                          <td title={e.party}>{e.party}</td>
-                          <td>{fmtDate(e.validUpto)}</td>
-                          <td style={{ overflow: 'visible' }}><Pill tone={ewayStatusTone(e.status)}>{e.status}</Pill></td>
-                        </>
-                      ))}
-                    />
+                  : <>
+                      <Table
+                        widths={['28%', '24%', '24%', '24%']}
+                        head={['e-Way bill', 'Party', 'Valid until', 'Status']}
+                        rows={ewayBills.slice(0, 10).map(e => (
+                          <>
+                            <td style={{ color: NAVY, fontWeight: 700, ...rowStripe(ewayStatusTone(e.status)) }}>
+                              <a href={erpUrl(`${e.linkedDoctype === 'Sales Invoice' ? 'sales-invoice' : 'delivery-note'}/${encodeURIComponent(e.linkedDoc)}`)}
+                                target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}
+                                title={`${e.linkedDoctype}: ${e.linkedDoc}`}>
+                                {e.ewayBill}
+                              </a>
+                            </td>
+                            <td title={e.party}>{e.party}</td>
+                            <td>{fmtDate(e.validUpto)}</td>
+                            <td style={{ overflow: 'visible' }}><Pill tone={ewayStatusTone(e.status)}>{e.status}</Pill></td>
+                          </>
+                        ))}
+                      />
+                      {ewayBills.length > 10 && <ViewAllButton href={erpUrl('e-waybill-log')} />}
+                    </>
                 }
               </div>
             </Card>
