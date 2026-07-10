@@ -378,7 +378,6 @@ export default function FinanceHeadPage() {
   const [revPeriod, setRevPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gstPeriod, setGstPeriod] = useState<'M' | 'Q' | 'Y'>('M')
   const [gmPeriod, setGmPeriod]   = useState<'M' | 'Q' | 'Y'>('M')
-  const [expandedEntity, setExpandedEntity] = useState<string | null>(null)
   const [releasingInvoice, setReleasingInvoice] = useState<string | null>(null)
   const [approvingPo, setApprovingPo] = useState<string | null>(null)
   const [approvingJe, setApprovingJe] = useState<string | null>(null)
@@ -656,14 +655,14 @@ export default function FinanceHeadPage() {
                 <i className={`ti ${a.level === 'red' ? 'ti-alert-octagon' : 'ti-alert-triangle'}`} style={{ fontSize: 16, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ fontWeight: 700, display: 'block', marginBottom: 2 }}>{a.title}</span>
-                  <span style={{ color: INK, opacity: .82 }}>{a.subtitle}</span>
+                  {a.subtitle && <span style={{ color: INK, opacity: .82 }}>{a.subtitle.split(', ').map(shortEntity).join(', ')}</span>}
                   {a.reason && <div style={{ fontSize: 10.5, color: INK, opacity: .82, marginTop: 2 }}><strong>Why:</strong> {a.reason}</div>}
                 </div>
                 {a.entityLabel && (
                   <span style={{
                     fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase',
                     padding: '3px 9px', borderRadius: 99, border: '1px solid currentColor', whiteSpace: 'nowrap', flexShrink: 0,
-                  }}>{a.entityLabel}</span>
+                  }}>{shortEntity(a.entityLabel)}</span>
                 )}
                 {a.link && <i className="ti ti-external-link" style={{ fontSize: 14, opacity: .55, flexShrink: 0 }} />}
               </Wrapper>
@@ -706,31 +705,15 @@ export default function FinanceHeadPage() {
                 <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 22, color: '#fff' }}>{fmtMoney(data.cashBank.total)}</div>
               </div>
               {data.cashBank.byEntity.map(e => {
-                const expanded = expandedEntity === e.entity
-                const accounts = data.cashBank.accountsByEntity[e.entity] ?? []
                 return (
-                  <div key={e.entity} style={{ borderRadius: 9, background: BG, overflow: 'hidden' }}>
-                    <div onClick={() => setExpandedEntity(expanded ? null : e.entity)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 11px', cursor: 'pointer' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: NAVY, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <i className={`ti ti-chevron-${expanded ? 'down' : 'right'}`} style={{ fontSize: 12 }} />{shortEntity(e.entity)}
+                  <div key={e.entity} style={{ borderRadius: 9, background: BG, overflow: 'hidden', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 11px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: NAVY }}>{shortEntity(e.entity)}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: e.changeVs7d >= 0 ? GREEN : RED }}>
+                        {e.changeVs7d >= 0 ? '▲' : '▼'} {fmtMoney(Math.abs(e.changeVs7d))}
                       </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: e.changeVs7d >= 0 ? GREEN : RED }}>
-                          {e.changeVs7d >= 0 ? '▲' : '▼'} {fmtMoney(Math.abs(e.changeVs7d))}
-                        </span>
-                        <span style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 13, color: INK }}>{fmtMoney(e.value)}</span>
-                      </span>
-                    </div>
-                    {expanded && (
-                      <div style={{ padding: '0 11px 10px 26px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {accounts.map(a => (
-                          <div key={a.account} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-                            <span style={{ color: INK2 }}>{a.account}</span>
-                            <span style={{ fontFamily: 'monospace', color: a.balance < 0 ? RED : INK }}>{fmtMoney(a.balance)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                      <span style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 13, color: INK }}>{fmtMoney(e.value)}</span>
+                    </span>
                   </div>
                 )
               })}

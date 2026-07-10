@@ -699,7 +699,7 @@ async function buildAlerts(overdue: OverdueReceivables, cashBank: CashBank, erpB
     alerts.push({
       level: 'amber',
       title: `Cash balance below ${rupees(LOW_CASH_ENTITY_THRESHOLD)}`,
-      subtitle: lowCashEntities.map(e => e.entity).join(', '),
+      subtitle: lowCashEntities.length === 1 ? '' : lowCashEntities.map(e => e.entity).join(', '),
       entityLabel: lowCashEntities.length === 1 ? lowCashEntities[0].entity : `${lowCashEntities.length} entities`,
     })
   }
