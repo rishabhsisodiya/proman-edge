@@ -614,8 +614,8 @@ export default function DispatchHeadPage() {
                 <QuickAction icon="ti-file-certificate" label="Generate e-Way Bill" href={erpUrl('e-waybill-log/new')} />
                 <QuickAction icon="ti-truck" label="Book Vehicle" href={erpUrl('delivery-note?docstatus=0')} />
                 <QuickAction icon="ti-send" label="Submit Delivery Note" href={erpUrl('delivery-note?docstatus=0')} />
-                <QuickAction icon="ti-check" label="Log Customer Receipt" href={erpUrl('delivery-note?docstatus=1&status=Completed')} />
-                <QuickAction icon="ti-checklist" label="Dispatch Checklist" href={erpUrl('delivery-note?docstatus=0')} />
+                <QuickAction icon="ti-check" label="Log Customer Receipt" href={erpUrl('delivery-note?docstatus=1&status=Completed')} disabled />
+                <QuickAction icon="ti-checklist" label="Dispatch Checklist" href={erpUrl('delivery-note?docstatus=0')} disabled />
                 <QuickAction icon="ti-file-invoice" label="Pending Invoices" href={erpUrl('sales-invoice?docstatus=1&update_stock=0')} />
                 <QuickAction icon="ti-report" label="Dispatch Report" href={erpUrl('query-report/FG Dispatch Report')} />
               </div>
@@ -715,16 +715,20 @@ function ViewAllButton({ href }: { href: string }) {
   )
 }
 
-function QuickAction({ icon, label, href }: { icon: string; label: string; href: string }) {
+function QuickAction({ icon, label, href, disabled }: { icon: string; label: string; href: string; disabled?: boolean }) {
+  const button = (
+    <button style={{
+      width: '100%', fontSize: 11, fontWeight: 700, padding: '9px 10px', borderRadius: 8,
+      border: `1px solid ${BORDER}`, background: '#fff', color: NAVY, cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', gap: 7, textAlign: 'left',
+    }}>
+      <i className={`ti ${icon}`} style={{ color: ORANGE, fontSize: 15 }} />{label}
+    </button>
+  )
+  if (disabled) return button
   return (
     <a href={href} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-      <button style={{
-        width: '100%', fontSize: 11, fontWeight: 700, padding: '9px 10px', borderRadius: 8,
-        border: `1px solid ${BORDER}`, background: '#fff', color: NAVY, cursor: 'pointer',
-        display: 'flex', alignItems: 'center', gap: 7, textAlign: 'left',
-      }}>
-        <i className={`ti ${icon}`} style={{ color: ORANGE, fontSize: 15 }} />{label}
-      </button>
+      {button}
     </a>
   )
 }
