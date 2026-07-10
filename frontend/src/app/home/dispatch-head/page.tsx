@@ -395,10 +395,10 @@ export default function DispatchHeadPage() {
                               {r.dnNo}
                             </a>
                           </td>
-                          <td title={r.customerName}>{r.customerName}</td>
-                          <td title={r.product}>{r.product}</td>
-                          <td>{fmtDate(r.targetDate)}</td>
-                          <td style={{ overflow: 'visible' }}><Pill tone={blockerTone(r.blocker)}>{r.blocker}</Pill></td>
+                          <td title={r.customerName} style={{ cursor: 'pointer' }} onClick={() => setSelectedDn(r.dnNo)}>{r.customerName}</td>
+                          <td title={r.product} style={{ cursor: 'pointer' }} onClick={() => setSelectedDn(r.dnNo)}>{r.product}</td>
+                          <td style={{ cursor: 'pointer' }} onClick={() => setSelectedDn(r.dnNo)}>{fmtDate(r.targetDate)}</td>
+                          <td style={{ overflow: 'visible', cursor: 'pointer' }} onClick={() => setSelectedDn(r.dnNo)}><Pill tone={blockerTone(r.blocker)}>{r.blocker}</Pill></td>
                         </>
                       ))}
                     />
