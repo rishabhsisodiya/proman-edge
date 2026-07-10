@@ -215,9 +215,10 @@ export default function DispatchHeadPage() {
     const mon = new Date(n); mon.setDate(n.getDate() + diff); return mon
   })()
   const weekSat = new Date(weekMonday); weekSat.setDate(weekMonday.getDate() + 5)
-  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   const todayDate = new Date()
   const in7Days = new Date(todayDate); in7Days.setDate(todayDate.getDate() + 7)
+  const yearStart = new Date(todayDate.getFullYear(), 0, 1)
 
   return (
     <div style={{ minHeight: '100vh', background: BG, fontFamily: "Arial,'Arial Narrow',Helvetica,sans-serif", padding: 12 }}>
@@ -357,7 +358,7 @@ export default function DispatchHeadPage() {
           <KpiTile label="e-Way Bills Expiring" value={String(data.ewayBillsExpiring.expiringWeek)} sub={`${data.ewayBillsExpiring.expiringToday} expires today`} accent={RED}
             href={erpUrl(`e-waybill-log?is_cancelled=0&valid_upto=["between",["${iso(todayDate)}","${iso(in7Days)}"]]`)} />
           <KpiTile label="Revenue Pending Invoice" value={fmtMoney(data.revenuePendingInvoice.revenuePending)} sub={`${data.revenuePendingInvoice.count} DNs awaiting invoice`} accent={AMBER}
-            href={erpUrl('delivery-note?status=To Bill')} />
+            href={erpUrl(`delivery-note?posting_date=${encodeURIComponent(JSON.stringify(['Between', [iso(yearStart), iso(todayDate)]]))}&is_return=0&docstatus=1&status=To Bill`)} />
         </div>
 
         {/* Zone 3 — Pipeline | Documentation checklist | Vehicle booking + e-way status */}
