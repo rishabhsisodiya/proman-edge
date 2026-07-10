@@ -109,7 +109,8 @@ async function getPendingGrnList(): Promise<PendingGrnRow[]> {
          SELECT parent, COUNT(*) AS n FROM \`tabPurchase Receipt Item\` GROUP BY parent
      ) ic ON ic.parent = pr.name
      WHERE pr.docstatus = 0 AND pr.is_return = 0
-     ORDER BY FIELD(pr.workflow_state, 'Pending for Approval', 'Sent For Approval', 'Draft'), pr.posting_date ASC`,
+       AND pr.workflow_state = 'Sent For Approval'
+     ORDER BY pr.posting_date ASC`,
   )
   return rows.map(r => ({
     grnNo: r.grn_no, vendor: r.vendor, approvalState: r.approval_state, firstItem: r.first_item ?? '—',

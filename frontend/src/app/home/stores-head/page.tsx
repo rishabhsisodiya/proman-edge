@@ -540,7 +540,7 @@ export default function StoresHeadPage() {
                         </>
                       ))}
                     />
-                    <ViewAllButton href={erpUrl('purchase-receipt?docstatus=0&workflow_state=["in",["Draft","Pending for Approval","Sent For Approval"]]')} />
+                    <ViewAllButton href={erpUrl('purchase-receipt?docstatus=0&workflow_state=Sent For Approval')} />
                   </>
               }
             </Card>
