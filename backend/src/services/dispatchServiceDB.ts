@@ -22,7 +22,7 @@ async function getReadyToDispatch(): Promise<ReadyToDispatch> {
      WHERE so.docstatus = 1
        AND EXISTS (
          SELECT 1 FROM \`tabWork Order\` wo
-         WHERE wo.sales_order = so.name AND wo.docstatus = 1
+         WHERE wo.sales_order = so.name AND wo.docstatus = 1 AND wo.status = 'Completed'
            AND EXISTS (SELECT 1 FROM \`tabJob Card\` jc
                        WHERE jc.work_order = wo.name AND jc.status = 'Completed'
                          AND EXISTS (SELECT 1 FROM \`tabQuality Inspection\` qi
