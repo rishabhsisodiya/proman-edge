@@ -45,6 +45,8 @@ export async function frappeGet<T = FrappeEnvelope>(
 
   if (!res.ok) {
     log('GET', method, ms, 'err')
+    const body = await res.text().catch(() => '')
+    console.error(`[frappe] GET ${method} failed: HTTP ${res.status}${body ? ` — ${body.slice(0, 500)}` : ''}`)
     throw new Error(`Frappe ${method} → HTTP ${res.status}`)
   }
 
@@ -87,7 +89,9 @@ export async function frappePost<T = FrappeEnvelope>(
         if (inner.message) msg = inner.message
       } catch { /* ignore parse errors */ }
     }
-    throw new Error(msg.replace(/<[^>]+>/g, '').trim())
+    const cleanMsg = msg.replace(/<[^>]+>/g, '').trim()
+    console.error(`[frappe] POST ${method} failed: ${cleanMsg}`)
+    throw new Error(cleanMsg)
   }
 
   log('POST', method, ms, res.status)
