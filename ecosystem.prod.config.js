@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'proman-prod-backend',
-      cwd: '/Users/rishabhsisodiya/PROMAN-prod/backend',
+      cwd: '/root/proman-prod/backend',
       script: 'dist/index.js',
       env: {
         NODE_ENV: 'production',
@@ -11,7 +11,7 @@ module.exports = {
     },
     {
       name: 'proman-prod-frontend',
-      cwd: '/Users/rishabhsisodiya/PROMAN-prod/frontend',
+      cwd: '/root/proman-prod/frontend',
       script: 'npm',
       args: 'start',
       env: {

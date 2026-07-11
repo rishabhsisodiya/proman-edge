@@ -4,7 +4,7 @@ set -e
 
 TARGET=${1:-all}  # all | backend | frontend
 
-ROOT=/Users/rishabhsisodiya/PROMAN-prod
+ROOT=/root/proman-prod
 
 pull() {
   cd $ROOT
