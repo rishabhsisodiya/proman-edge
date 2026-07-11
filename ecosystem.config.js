@@ -12,7 +12,7 @@ module.exports = {
       name: 'proman-frontend',
       cwd: '/root/proman/frontend',
       script: 'npm',
-      args: 'start',
+      args: 'run start -- -p 3000',
       env: {
         NODE_ENV: 'production',
         PORT: '3000'
