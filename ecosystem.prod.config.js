@@ -4,7 +4,7 @@ module.exports = {
       name: 'proman-prod-backend',
       cwd: '/root/proman-prod/backend',
       script: 'doppler',
-      args: 'run --token=$DOPPLER_TOKEN -- node dist/index.js',
+      args: 'run -- node dist/index.js',
       env: {
         NODE_ENV: 'production',
         PORT: '4001',
@@ -15,7 +15,7 @@ module.exports = {
       name: 'proman-prod-frontend',
       cwd: '/root/proman-prod/frontend',
       script: 'doppler',
-      args: 'run --token=$DOPPLER_TOKEN -- npm run start -- -p 3001',
+      args: 'run -- npm run start -- -p 3001',
       env: {
         NODE_ENV: 'production',
         PORT: '3001',
