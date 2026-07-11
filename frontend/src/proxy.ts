@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Strategic roles that can access other dashboards freely
-const CROSS_DASHBOARD_ROLES = new Set(['md', 'sales-head'])
+const CROSS_DASHBOARD_ROLES = new Set(['md', 'sales-head', 'manufacturing-head', 'procurement-head'])
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const roleSlug = request.cookies.get('proman_role')?.value
 

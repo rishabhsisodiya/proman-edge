@@ -6,33 +6,46 @@ import { useSalesHomepage } from '@/hooks/useSalesHomepage'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useQuotationDetail, extendQuotation, convertToSalesOrder } from '@/hooks/useQuotationDetail'
 import type { FunnelStage, FollowUpItem } from '@/types/sales'
+import { colors } from '@/lib/brand'
+import { formatMoney } from '@/lib/format'
 
 // Roles that can switch to other dashboards
 const SWITCHER_OPTIONS: Record<string, { label: string; slug: string }[]> = {
-  'sales-head': [{ label: 'Manufacturing Head', slug: 'manufacturing-head' }],
+  'sales-head': [
+    { label: 'Manufacturing Head', slug: 'manufacturing-head' },
+    { label: 'Procurement Head',   slug: 'procurement-head'  },
+    { label: 'Finance Head',       slug: 'finance-head'      },
+    { label: 'Stores Head',        slug: 'stores-head'       },
+    { label: 'Dispatch Head',      slug: 'dispatch-head'     },
+  ],
   'md': [
     { label: 'Sales Head',         slug: 'sales-head'         },
     { label: 'Manufacturing Head', slug: 'manufacturing-head' },
+    { label: 'Procurement Head',   slug: 'procurement-head'  },
+    { label: 'Finance Head',       slug: 'finance-head'      },
+    { label: 'Stores Head',        slug: 'stores-head'       },
+    { label: 'Dispatch Head',      slug: 'dispatch-head'     },
   ],
 }
 
 // ── brand tokens ───────────────────────────────────────────────────────────
-// Official Proman brand: Navy #2A2F69 | Orange #FF7604 | Arial font
-const NAVY    = '#2A2F69'
-const ORANGE  = '#FF7604'
-const BORDER  = '#DDDDE8'
-const BG      = '#F7F7F9'
-const TEXT    = '#2A2F69'
-const TEXT2   = '#5F638F'
-const TEXT3   = '#8F92B5'
-const HOVER   = '#EAEAF0'
-const SUCCESS = '#1A6B3A'
-const WARNING = '#B45309'
-const ERROR   = '#A32D2D'
+const NAVY       = colors.navy
+const ORANGE     = colors.orange
+const BORDER     = colors.border
+const BG         = colors.navySoft
+const TEXT       = colors.textPrimary
+const TEXT2      = colors.textSecondary
+const TEXT3      = colors.textDisabled
+const HOVER      = colors.navyTint
+const SUCCESS    = colors.success
+const WARNING    = colors.warning
+const ERROR      = colors.error
+const WARNING_BG = colors.warningBg
+const ERROR_BG   = colors.errorBg
 
 // ── constants ──────────────────────────────────────────────────────────────
 // Funnel: Navy shades (darkest → lighter shades → success green for Won)
-const FCOL   = ['#2A2F69', '#3D4490', '#5259A8', '#6B73B8', '#1A6B3A']
+const FCOL   = [NAVY, '#3D4490', '#5259A8', '#6B73B8', SUCCESS]
 // KPI card top-border accent per card index (0=Enquiries,1=Quot,2=Orders,3=Conv,4=Revenue)
 const ACCENT = [NAVY, WARNING, SUCCESS, WARNING, ORANGE]
 const CARD_ORDER = [1, 3, 0, 2, 4]
@@ -44,32 +57,68 @@ const CARDS = [
   { base: 'Revenue',          toggle: true  },
 ]
 const SUFFIX: Record<string, string> = { month: 'MTD', q: 'QTD', ytd: 'YTD' }
-const MLAB = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
-const QLAB = ["Sep'25", "Dec'25", "Mar'26", "Jun'26"]
-const YLAB = ['2024', '2025', '2026']
-// Spark value formatter per card index
-function fmtRupee(v: number): string {
-  if (v >= 10_000_000) return `₹${(v / 10_000_000).toFixed(1)}Cr`
-  if (v >= 100_000)    return `₹${Math.round(v / 100_000)}L`
-  if (v >= 1_000)      return `₹${Math.round(v / 1_000)}K`
-  return `₹${Math.round(v)}`
+// Dynamic labels — always based on today so they stay correct as time passes
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+function buildMlab(): string[] {
+  const now = new Date()
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
+    return MONTHS[d.getMonth()]
+  })
 }
+function buildQlab(): string[] {
+  const now  = new Date()
+  const absQ = now.getFullYear() * 4 + Math.floor(now.getMonth() / 3) // absolute quarter
+  return Array.from({ length: 4 }, (_, i) => {
+    const q    = absQ - 3 + i
+    const year = Math.floor(q / 4)
+    const qi   = q % 4                    // 0-based quarter within year
+    const endMonth = (qi + 1) * 3 - 1    // last month of that quarter (0-based)
+    return MONTHS[endMonth] + "'" + String(year).slice(2)
+  })
+}
+function buildYlab(): string[] {
+  const y = new Date().getFullYear()
+  return [String(y - 2), String(y - 1), String(y)]
+}
+const MLAB = buildMlab()
+const QLAB = buildQlab()
+const YLAB = buildYlab()
+// Inject animation styles once at module load — avoids re-inserting on every render
+if (typeof document !== 'undefined') {
+  const id = 'proman-kpi-styles'
+  if (!document.getElementById(id)) {
+    const s = document.createElement('style')
+    s.id = id
+    s.textContent = `
+      @keyframes barGrow { from { transform: scaleY(0) } to { transform: scaleY(1) } }
+      .spark-bar { transform-origin: bottom; animation: barGrow .35s ease both; }
+      .kpi-card { transition: transform .12s, box-shadow .12s; }
+      .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+    `
+    document.head.appendChild(s)
+  }
+}
+
+// Spark value formatter per card index
+const fmtRupee = formatMoney
+const fmtCr = (v: number) => formatMoney(v * 1_00_00_000)
 const SFMT: ((v: number) => string)[] = [
   v => String(v),
   v => String(v),
-  v => fmtRupee(v),
+  fmtCr,          // Orders spark — values already in Cr
   v => `${v}%`,
-  v => fmtRupee(v),
+  fmtCr,          // Revenue spark — values already in Cr
 ]
-const QUICK_ACTIONS: { icon: string; label: string; path: string }[] = [
-  { icon: 'ti-file-dollar',  label: 'Create quotation',      path: 'quotation/new-quotation-1'                      },
-  { icon: 'ti-pencil-plus',  label: 'Log enquiry',           path: 'lead/new-lead-1'                                },
-  { icon: 'ti-phone',        label: 'Record follow-up',      path: 'crm-call-log/new-crm-call-log-1'                },
-  { icon: 'ti-funnel',       label: 'View CRM pipeline',     path: 'crm-pipeline'                                   },
-  { icon: 'ti-circle-x',    label: 'Lost order analysis',   path: 'quotation?docstatus=1&status=Lost'              },
-  { icon: 'ti-report',       label: 'Customer visit report', path: 'customer-visit/new-customer-visit-1'            },
-  { icon: 'ti-checkup-list', label: 'Approval status',       path: 'workflow-action'                                },
-  { icon: 'ti-chart-bar',    label: 'Target vs actuals',     path: 'sales-person'                                   },
+const QUICK_ACTIONS: { icon: string; label: string; path: string; primary: boolean }[] = [
+  { icon: 'ti-file-dollar',  label: 'Create quotation',      path: 'quotation/new-quotation-1',             primary: true  },
+  { icon: 'ti-pencil-plus',  label: 'Log enquiry',           path: 'lead/new-lead-1',                       primary: false },
+  { icon: 'ti-phone',        label: 'Record follow-up',      path: 'communication',                         primary: false },
+  { icon: 'ti-funnel',       label: 'View CRM pipeline',     path: 'crm',                                   primary: false },
+  { icon: 'ti-circle-x',    label: 'Lost order analysis',   path: 'quotation?docstatus=1&status=Lost',     primary: false },
+  { icon: 'ti-report',       label: 'Customer visit report', path: 'customer-visit/new-customer-visit-1',   primary: false },
+  { icon: 'ti-checkup-list', label: 'KPI summary card',      path: 'workflow-action',                       primary: false },
+  { icon: 'ti-chart-bar',    label: 'Target vs actuals',     path: 'query-report/Sales%20Performance',      primary: false },
 ]
 
 type Period = 'month' | 'q' | 'ytd'
@@ -84,22 +133,20 @@ function shade(hex: string, amt: number): string {
   return '#' + (0x1000000 + (c(r) << 16) + (c(g) << 8) + c(b)).toString(16).slice(1)
 }
 
-function labelsFor(spark: number[]): string[] {
-  if (spark.length <= 3) return YLAB.slice(0, spark.length)
-  if (spark.length <= 4) return QLAB.slice(0, spark.length)
+function labelsFor(spark: number[], period: Period = 'month'): string[] {
+  if (period === 'ytd') return YLAB.slice(0, spark.length)
+  if (period === 'q')   return QLAB.slice(0, spark.length)
   return MLAB.slice(0, spark.length)
 }
 
 // ── SVG 3D funnel ──────────────────────────────────────────────────────────
 function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: string) => void }) {
-  const CX = 200, H = 54, Y0 = 36, MAXW = 340, MINW = 96
-  const maxN = Math.max(...funnel.map(s => s.count))
-  const W: number[] = []
-  funnel.forEach((s, i) => {
-    const natural = Math.max(MINW, Math.round(MAXW * s.count / maxN))
-    W.push(i === 0 ? natural : Math.min(W[i - 1], natural))
-  })
-  W.push(Math.round(W[W.length - 1] * 0.5))
+  const CX = 200, H = 60, Y0 = 36
+  // 6 boundary widths for 5 stages — uniform 50px step so all stages look like
+  // equal slices of the same triangle (340 → 290 → 240 → 190 → 140 → 90).
+  const ALL_W = [340, 290, 240, 190, 140, 90]
+  const W: number[] = funnel.map((_, i) => ALL_W[i] ?? 90)
+  W.push(ALL_W[funnel.length] ?? 90)
   const bow = W.map(w => w * 0.08)
   const svgH = Y0 + funnel.length * H + Math.round(bow[W.length - 1] * 2) + 10
 
@@ -120,19 +167,20 @@ function SvgFunnel({ funnel, onStage }: { funnel: FunnelStage[]; onStage: (s: st
       {funnel.map((r, i) => {
         const hT = W[i] / 2, hB = W[i + 1] / 2
         const yT = Y0 + i * H, yB = yT + H
-        const drop = i > 0 ? Math.round(100 - (r.count / funnel[i - 1].count * 100)) : null
+        const prev = i > 0 ? funnel[i - 1].count : null
+        const drop = prev !== null && prev > 0 ? Math.round(100 - (r.count / prev * 100)) : null
         const path = `M${CX - hT},${yT} Q${CX},${yT + 2 * bow[i]} ${CX + hT},${yT} L${CX + hB},${yB} Q${CX},${yB + 2 * bow[i + 1]} ${CX - hB},${yB} Z`
         return (
           <g key={i} onClick={() => onStage(r.stage)} style={{ cursor: 'pointer' }}>
             <path d={path} fill={`url(#fg${i})`} />
             <text x={CX} y={yT + H / 2 + bow[i] * 0.7 + 5} textAnchor="middle"
-              fill="#fff" fontSize="13.5" fontWeight="700"
+              fill="#fff" fontSize={i === funnel.length - 1 ? '11' : '13.5'} fontWeight="700"
               style={{ pointerEvents: 'none', letterSpacing: '.3px' }}>
               {r.stage} {r.count}
             </text>
-            <text x={CX + Math.max(hT, 120) + 26} y={yT + H / 2 + 10}
+            <text x={CX + hT + 14} y={yT + H / 2 + 10}
               fontSize="14.5" fontWeight="700" fill="#1A2433">
-              {r.value != null ? `₹${r.value}Cr` : '—'}
+              {r.value != null ? `₹${r.value.toFixed(1)}Cr` : '—'}
               {drop !== null && <tspan dx="9" fontSize="11.5" fill="#C0392B">{drop}% drop</tspan>}
             </text>
           </g>
@@ -156,7 +204,9 @@ export default function SalesHeadHomepage() {
   const [showBell, setShowBell]         = useState(false)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [drawerDeal, setDrawerDeal]     = useState<FollowUpItem | null>(null)
-  const [actionMsg, setActionMsg]       = useState('')
+  const [actionMsg, setActionMsg]       = useState<{ msg: string; url?: string } | null>(null)
+  const [convertResult, setConvertResult] = useState<{ quotation: string; soName: string; soUrl: string } | null>(null)
+  const [convertPrompt, setConvertPrompt] = useState<{ quotation: string; deliveryDate: string } | null>(null)
   const bellRef     = useRef<HTMLDivElement>(null)
   const actionQRef  = useRef<HTMLDivElement>(null)
   const switcherRef = useRef<HTMLDivElement>(null)
@@ -176,27 +226,49 @@ export default function SalesHeadHomepage() {
   // Load real quotation detail when drawer opens
   const { detail, isLoading: detailLoading } = useQuotationDetail(drawerDeal?.quotation ?? null)
 
-  function toast(msg: string) {
-    setActionMsg(msg)
-    setTimeout(() => setActionMsg(''), 3000)
+  function toast(msg: string, url?: string) {
+    setActionMsg({ msg, url })
+    setTimeout(() => setActionMsg(null), 5000)
   }
 
   async function handleExtend(quotation: string) {
     try {
-      const result = await extendQuotation(quotation, { days: 14 })
-      toast(result.validTill ? `Validity extended to ${result.validTill}` : 'Validity extended by 14 days')
-    } catch {
-      toast('Extend failed — check ERPNext connection')
+      const result = await extendQuotation(quotation, { days: 7 })
+      toast(result.validTill ? `Validity extended to ${result.validTill}` : 'Validity extended by 7 days')
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : ''
+      // Strip HTML tags from Frappe error messages
+      const clean = raw.replace(/<[^>]+>/g, '').trim()
+      toast(clean || 'Extend failed — check ERPNext connection')
     }
   }
 
-  async function handleConvert(quotation: string) {
+  function handleConvert(quotation: string) {
+    const today = new Date().toISOString().slice(0, 10)
+    setConvertPrompt({ quotation, deliveryDate: today })
+  }
+
+  async function doConvert() {
+    if (!convertPrompt) return
+    const { quotation, deliveryDate } = convertPrompt
+    setConvertPrompt(null)
     try {
-      const res = await convertToSalesOrder(quotation)
-      toast(res.salesOrder ? `Sales Order ${res.salesOrder} created` : 'Conversion initiated')
+      const res = await convertToSalesOrder(quotation, deliveryDate)
       setDrawerDeal(null)
-    } catch {
-      toast('Convert failed — check ERPNext connection')
+      if (res.salesOrder) {
+        const soUrl = erpUrl(`sales-order/${encodeURIComponent(res.salesOrder)}`)
+        setConvertResult({ quotation, soName: res.salesOrder, soUrl })
+      } else {
+        toast('Draft Sales Order created — check ERPNext to submit')
+      }
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : ''
+      const friendly = raw.includes('Sales Team')
+        ? `Cannot convert ${quotation} — Sales Team allocation is incomplete. Fix it in ERPNext and retry.`
+        : raw.includes('mandatory') || raw.includes('missing')
+        ? `Cannot convert ${quotation} — required fields are missing in the quotation.`
+        : raw || 'Convert failed — check ERPNext connection'
+      toast(friendly)
     }
   }
 
@@ -211,7 +283,7 @@ export default function SalesHeadHomepage() {
 
   if (isLoading || userLoading) return <div className="p-10 text-sm text-gray-500">Loading dashboard…</div>
   if (isError || !data) return (
-    <div style={{ minHeight: '100vh', background: '#F7F7F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "Arial,'Helvetica Neue',Helvetica,sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: BG, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "Arial,'Helvetica Neue',Helvetica,sans-serif" }}>
       <div style={{ textAlign: 'center', maxWidth: 420, padding: '0 24px' }}>
         {/* Icon */}
         <div style={{ width: 64, height: 64, borderRadius: 16, background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
@@ -221,24 +293,24 @@ export default function SalesHeadHomepage() {
           </svg>
         </div>
         {/* Heading */}
-        <div style={{ fontSize: 20, fontWeight: 700, color: '#2A2F69', marginBottom: 8 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: NAVY, marginBottom: 8 }}>
           Dashboard unavailable
         </div>
         {/* Message */}
-        <div style={{ fontSize: 13.5, color: '#5F638F', lineHeight: 1.6, marginBottom: 6 }}>
+        <div style={{ fontSize: 13.5, color: TEXT2, lineHeight: 1.6, marginBottom: 6 }}>
           Unable to reach the ERPNext server. This is usually a temporary issue with the API connection.
         </div>
-        <div style={{ fontSize: 12, color: '#8F92B5', marginBottom: 28 }}>
+        <div style={{ fontSize: 12, color: TEXT3, marginBottom: 28 }}>
           Error: 5xx — server did not respond
         </div>
         {/* Actions */}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           <button onClick={refresh}
-            style={{ background: '#2A2F69', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: NAVY, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
             Retry
           </button>
           <button onClick={() => window.location.reload()}
-            style={{ background: '#fff', color: '#2A2F69', border: '1.5px solid #DDDDE8', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: '#fff', color: NAVY, border: `1.5px solid ${BORDER}`, borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
             Reload page
           </button>
         </div>
@@ -269,20 +341,26 @@ export default function SalesHeadHomepage() {
   const convMtd = parseFloat((data.kpis[3]?.value ?? '0').replace('%', ''))
   const bellItems: { color: string; title: string; sub: string }[] = [
     ...alerts.map(a => ({
-      color: a.sev === 'red' ? '#EF4444' : '#B45309',
+      color: a.sev === 'red' ? '#EF4444' : WARNING,
       title: a.text.split('.')[0],
       sub:   a.text.split('.').slice(1).join('.').trim(),
     })),
-    ...(convMtd < 25 ? [{ color: '#B45309', title: 'Conversion rate below 25% this month', sub: 'Below 30-day average' }] : []),
+    ...(convMtd < 25 ? [{ color: WARNING, title: 'Conversion rate below 25% this month', sub: 'Below 30-day average' }] : []),
   ]
 
   const monthName = new Date().toLocaleString('en', { month: 'long' })
   const syncTime  = new Date(data.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  const _now      = new Date()
+  const mtdFrom   = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-01`
+  const mtdTo     = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
+  const _weekEnd  = new Date(_now); _weekEnd.setDate(_now.getDate() + 7)
+  const weekEndStr = `${_weekEnd.getFullYear()}-${String(_weekEnd.getMonth() + 1).padStart(2, '0')}-${String(_weekEnd.getDate()).padStart(2, '0')}`
 
   const funnel  = data.funnel[funnelPeriod]
   const rMax    = Math.max(...data.regionPipeline.map(r => r.quoted + r.negotiation + r.won))
   const gaugeR  = 49, gaugeCirc = 2 * Math.PI * gaugeR
-  const gaugeColor = pct >= 90 ? '#1A6B3A' : pct >= 70 ? '#FF7604' : '#B42318'
+  const gaugePct   = Math.min(pct, 100) // cap visual fill — value can exceed 100% but arc stays full
+  const gaugeColor = pct >= 90 ? SUCCESS : pct >= 70 ? ORANGE : '#B42318'
   const sparkMax   = Math.max(...data.revenueTarget.trend.map(t => t.value))
 
   function setCard(idx: number, p: Period, e: React.MouseEvent) {
@@ -293,25 +371,54 @@ export default function SalesHeadHomepage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', fontFamily: "Arial,'Helvetica Neue',Helvetica,sans-serif", background: BG, color: TEXT, WebkitFontSmoothing: 'antialiased' }}>
-      <div style={{ maxWidth: 1320, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <>
+    <style>{`
+      .sh-action-btn { font-size: 12.5px; padding: 5px 12px; border-radius: 9px; border: 1px solid ${BORDER};
+        background: #fff; color: ${NAVY}; cursor: pointer; text-align: left; display: inline-flex;
+        align-items: center; gap: 7px; text-decoration: none; width: 100%;
+        transition: background .12s, border-color .12s, box-shadow .12s; }
+      .sh-action-btn i { font-size: 18px; color: ${NAVY}; flex-shrink: 0; }
+      .sh-action-btn:hover { background: ${HOVER}; border-color: ${NAVY}; box-shadow: 0 3px 10px rgba(42,47,105,.10); }
+      .sh-action-btn.primary { background: linear-gradient(135deg,#FF8A2B 0%,${ORANGE} 100%);
+        border-color: ${ORANGE}; color: #fff; box-shadow: 0 3px 10px rgba(255,118,4,.30); }
+      .sh-action-btn.primary i { color: #fff; }
+      .sh-action-btn.primary:hover { background: linear-gradient(135deg,#FF7E18 0%,#E96C00 100%); border-color: #E96C00; }
+
+      /* ── Responsive layout ── */
+      .sh-kpi-grid    { display: grid; grid-template-columns: repeat(5,1fr); gap: 9px; }
+      .sh-row-funnel  { display: grid; grid-template-columns: 1.15fr .85fr; gap: 11px; }
+      .sh-row-main    { display: grid; grid-template-columns: 1.6fr 1fr; gap: 11px; align-items: start; }
+      .sh-quick-btns  { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+      @media (max-width: 1024px) {
+        .sh-kpi-grid   { grid-template-columns: repeat(3,1fr); }
+        .sh-row-funnel { grid-template-columns: 1fr; }
+        .sh-row-main   { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 600px) {
+        .sh-kpi-grid   { grid-template-columns: repeat(2,1fr); }
+        .sh-quick-btns { grid-template-columns: 1fr; }
+      }
+    `}</style>
+    <div style={{ minHeight: '100vh', fontFamily: "Arial,'Helvetica Neue',Helvetica,sans-serif", background: BG, color: TEXT, WebkitFontSmoothing: 'antialiased', padding: 12 }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 11 }}>
 
         {/* ── TOPBAR ── */}
-        <div style={{ background: 'linear-gradient(100deg,#2A2F69,#363B82)', borderRadius: 12, padding: '13px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 7 }}>
-              <i className="ti ti-trending-up" style={{ color: 'rgba(255,255,255,.6)' }} />
+        <div style={{ background: NAVY, borderBottom: `2px solid ${ORANGE}`, borderRadius: 12, padding: '13px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', boxShadow: '0 6px 20px rgba(27,31,71,.22)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <div style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontSize: 19, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <i className="ti ti-trending-up" style={{ color: '#9AA0D8' }} />
               Good morning, {user?.fullName ?? '…'}
             </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 3 }}>
+            <div style={{ fontSize: 13, color: '#B9BEE0' }}>
               {user?.role ?? 'Sales Head'} &nbsp;|&nbsp;
-              {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
               &nbsp;|&nbsp; Synced {syncTime}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative' }}>
             {/* Target chip */}
-            <span style={{ background: '#FF7604', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 13px', borderRadius: 99, whiteSpace: 'nowrap' }}>
+            <span style={{ background: ORANGE, color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 13px', borderRadius: 99, whiteSpace: 'nowrap' }}>
               {monthName} target: {pct}%
             </span>
             {/* Dashboard switcher — only for strategic roles */}
@@ -323,11 +430,11 @@ export default function SalesHeadHomepage() {
                   Switch dashboard
                 </button>
                 {showSwitcher && (
-                  <div style={{ position: 'absolute', top: 34, right: 0, background: '#fff', border: '1px solid #DDDDE8', borderRadius: 10, boxShadow: '0 8px 24px rgba(42,47,105,.15)', zIndex: 50, minWidth: 190, padding: 6 }}>
+                  <div style={{ position: 'absolute', top: 34, right: 0, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(42,47,105,.15)', zIndex: 50, minWidth: 190, padding: 6 }}>
                     {switcherOptions.map(o => (
                       <button key={o.slug} onClick={() => router.push(`/home/${o.slug}`)}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 11.5, padding: '8px 11px', borderRadius: 7, border: 'none', background: 'none', color: '#2A2F69', cursor: 'pointer' }}
-                        onMouseOver={e => (e.currentTarget.style.background = '#EAEAF0')}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 11.5, padding: '8px 11px', borderRadius: 7, border: 'none', background: 'none', color: NAVY, cursor: 'pointer' }}
+                        onMouseOver={e => (e.currentTarget.style.background = HOVER)}
                         onMouseOut={e => (e.currentTarget.style.background = 'none')}>
                         {o.label}
                       </button>
@@ -336,6 +443,21 @@ export default function SalesHeadHomepage() {
                 )}
               </div>
             )}
+            {/* Logout */}
+            <button
+              onClick={() => {
+                localStorage.removeItem('proman_token')
+                localStorage.removeItem('proman_user')
+                document.cookie = 'proman_role=; path=/; max-age=0'
+                router.push('/')
+              }}
+              title="Logout"
+              style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+              onMouseOver={e => (e.currentTarget.style.background = 'rgba(255,80,80,.25)')}
+              onMouseOut={e => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}>
+              <i className="ti ti-logout" style={{ fontSize: 14 }} />
+              <span>Logout</span>
+            </button>
             {/* Bell */}
             <div style={{ position: 'relative' }} ref={bellRef}>
               <button onClick={() => setShowBell(v => !v)}
@@ -348,16 +470,16 @@ export default function SalesHeadHomepage() {
                 </span>
               </button>
               {showBell && (
-                <div style={{ position: 'absolute', right: 0, top: 34, width: 300, background: '#fff', border: '1px solid #DDDDE8', borderRadius: 10, boxShadow: '0 12px 30px rgba(15,34,64,.18)', padding: 8, zIndex: 40 }}>
-                  <h4 style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: '#8F92B5', padding: '4px 6px 6px' }}>Needs attention</h4>
+                <div style={{ position: 'absolute', right: 0, top: 34, width: 300, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: '0 12px 30px rgba(15,34,64,.18)', padding: 8, zIndex: 40 }}>
+                  <h4 style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: TEXT3, padding: '4px 6px 6px' }}>Needs attention</h4>
                   {bellItems.length === 0
                     ? <div style={{ padding: '7px 6px', fontSize: 11 }}>No active alerts</div>
                     : bellItems.map((it, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 6px', borderRadius: 7, fontSize: 11, color: '#2A2F69', cursor: 'pointer' }}
-                        onMouseOver={e => (e.currentTarget.style.background = '#EAEAF0')}
+                      <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 6px', borderRadius: 7, fontSize: 11, color: NAVY, cursor: 'pointer' }}
+                        onMouseOver={e => (e.currentTarget.style.background = HOVER)}
                         onMouseOut={e => (e.currentTarget.style.background = '')}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: it.color, flexShrink: 0, marginTop: 4 }} />
-                        <div>{it.title}<small style={{ display: 'block', color: '#5F638F', fontSize: 10 }}>{it.sub}</small></div>
+                        <div>{it.title}<small style={{ display: 'block', color: TEXT2, fontSize: 10 }}>{it.sub}</small></div>
                       </div>
                     ))
                   }
@@ -370,12 +492,12 @@ export default function SalesHeadHomepage() {
         {/* ── A5 ALERT STACK ── */}
         {alerts.map((a, i) => (
           <div key={i} style={{
-            background: a.sev === 'red' ? '#FEF2F2' : '#FEF3C7',
+            background: a.sev === 'red' ? ERROR_BG : WARNING_BG,
             border: `1px solid ${a.sev === 'red' ? '#FCA5A5' : '#F2DCAE'}`,
             borderRadius: 10, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 9,
             fontSize: 12, color: a.sev === 'red' ? '#991B1B' : '#92600A'
           }}>
-            <i className={`ti ${a.icon}`} style={{ fontSize: 17, color: a.sev === 'red' ? '#B42318' : '#B45309', flexShrink: 0 }} />
+            <i className={`ti ${a.icon}`} style={{ fontSize: 17, color: a.sev === 'red' ? '#B42318' : WARNING, flexShrink: 0 }} />
             <div dangerouslySetInnerHTML={{ __html: `<strong>${a.text.split('.')[0]}.</strong>${a.text.includes('.') ? ' ' + a.text.split('.').slice(1).join('.') : ''}` }} />
             {a.action && (
               <button onClick={() => goActionTab(a.tab)}
@@ -387,24 +509,24 @@ export default function SalesHeadHomepage() {
         ))}
 
         {/* ── KPI BAND ── */}
-        <div style={{ background: 'linear-gradient(135deg,#2A2F69,#242859)', borderRadius: 13, padding: '13px 14px 14px' }}>
+        <div style={{ background: `linear-gradient(135deg,${NAVY},${colors.navyDeep})`, borderRadius: 13, padding: '13px 14px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.6)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Pipeline snapshot</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 9 }}>
+          <div className="sh-kpi-grid">
             {CARD_ORDER.map(idx => {
               const card = CARDS[idx]
               const per  = card.toggle ? cardPeriods[idx] : 'month'
               const kpi  = card.toggle ? data.kpisAll[per][idx] : data.kpis[idx]
               if (!kpi) return null
               const spark  = kpi.spark ?? []
-              const labels = labelsFor(spark)
+              const labels = labelsFor(spark, per)
               const mx     = Math.max(...spark, 1)
               const fmt    = SFMT[idx]
               const label  = card.base + (card.toggle ? ' ' + SUFFIX[per] : '')
               return (
-                <div key={idx}
-                  style={{ background: 'rgba(255,255,255,.07)', border: `1px solid rgba(255,255,255,.13)`, borderTop: `3px solid ${ACCENT[idx]}`, borderRadius: 11, padding: '11px 13px', cursor: 'pointer', transition: 'border-color .12s' }}
+                <div key={idx} className="kpi-card"
+                  style={{ background: 'rgba(255,255,255,.07)', border: `1px solid rgba(255,255,255,.13)`, borderTop: `3px solid ${ACCENT[idx]}`, borderRadius: 11, padding: '11px 13px', cursor: 'pointer' }}
                   onMouseOver={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.3)')}
                   onMouseOut={e => (e.currentTarget.style.borderTopColor = ACCENT[idx])}>
                   {/* label row */}
@@ -414,17 +536,17 @@ export default function SalesHeadHomepage() {
                       <span style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,.28)', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
                         {(['month', 'q', 'ytd'] as Period[]).map(p => (
                           <button key={p} onClick={e => setCard(idx, p, e)}
-                            style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 6px', border: 'none', background: per === p ? '#2A2F69' : 'transparent', color: per === p ? '#fff' : 'rgba(255,255,255,.6)', cursor: 'pointer', lineHeight: 1.4 }}>
+                            style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 6px', border: 'none', background: per === p ? NAVY : 'transparent', color: per === p ? '#fff' : 'rgba(255,255,255,.6)', cursor: 'pointer', lineHeight: 1.4 }}>
                             {p === 'month' ? 'M' : p === 'q' ? 'Q' : 'Y'}
                           </button>
                         ))}
                       </span>
                     )}
                     {!card.toggle && idx === 1 && (
-                      <button style={{ fontSize: 9, color: 'rgba(255,255,255,.6)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 600 }}>View all ↗</button>
+                      <button onClick={() => window.open(erpUrl('quotation?docstatus=1&status=Open'), '_blank')} style={{ fontSize: 9, color: 'rgba(255,255,255,.6)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 600 }}>View all ↗</button>
                     )}
-                    {!card.toggle && idx === 3 && (convMtd < 25) && (
-                      <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: '#FEF3C7', color: '#92600A' }}>below 25%</span>
+                    {!card.toggle && idx === 3 && convMtd < 25 && (
+                      <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: WARNING_BG, color: '#92600A' }}>below 25%</span>
                     )}
                   </div>
                   {/* value */}
@@ -444,8 +566,8 @@ export default function SalesHeadHomepage() {
                         return (
                           <div key={j} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 2, minWidth: 0 }}>
                             <span style={{ fontSize: 8, fontWeight: 600, color: '#FFFFFF', lineHeight: 1, whiteSpace: 'nowrap' }}>{fmt(v)}</span>
-                            <div style={{ width: '100%', maxWidth: 26, background: isCur ? '#FF7604' : 'rgba(181,212,244,.42)', borderRadius: 2, height: Math.max(4, Math.round(28 * v / mx)) }} />
-                            <span style={{ fontSize: 8, color: '#8F92B5', lineHeight: 1 }}>{labels[j] ?? ''}</span>
+                            <div className="spark-bar" style={{ width: '100%', maxWidth: 26, background: isCur ? ORANGE : 'rgba(181,212,244,.42)', borderRadius: 2, height: Math.max(4, Math.round(28 * v / mx)), animationDelay: `${j * 40}ms` }} />
+                            <span style={{ fontSize: 8, color: TEXT3, lineHeight: 1 }}>{labels[j] ?? ''}</span>
                           </div>
                         )
                       })}
@@ -458,18 +580,18 @@ export default function SalesHeadHomepage() {
         </div>
 
         {/* ── FUNNEL + GAUGE ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.15fr .85fr', gap: 11 }}>
+        <div className="sh-row-funnel">
           {/* Funnel */}
-          <div style={{ background: '#fff', border: '1px solid #DDDDE8', borderRadius: 11, padding: 13 }}>
+          <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: '#2A2F69' }}>
-                <i className="ti ti-filter" style={{ fontSize: 15, color: '#2A2F69' }} />
-                Pipeline funnel &nbsp;<span style={{ fontSize: 11, fontWeight: 400, color: '#5F638F' }}>{SUFFIX[funnelPeriod]}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: NAVY }}>
+                <i className="ti ti-filter" style={{ fontSize: 15, color: NAVY }} />
+                Pipeline funnel &nbsp;<span style={{ fontSize: 11, fontWeight: 400, color: TEXT2 }}>{SUFFIX[funnelPeriod]}</span>
               </div>
-              <span style={{ display: 'inline-flex', border: '1px solid #DDDDE8', borderRadius: 6, overflow: 'hidden' }}>
+              <span style={{ display: 'inline-flex', border: `1px solid ${BORDER}`, borderRadius: 6, overflow: 'hidden' }}>
                 {(['month', 'q', 'ytd'] as Period[]).map(p => (
                   <button key={p} onClick={() => setFunnelPeriod(p)}
-                    style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 6px', border: 'none', background: funnelPeriod === p ? '#2A2F69' : '#fff', color: funnelPeriod === p ? '#fff' : '#8F92B5', cursor: 'pointer', lineHeight: 1.4 }}>
+                    style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 6px', border: 'none', background: funnelPeriod === p ? NAVY : '#fff', color: funnelPeriod === p ? '#fff' : TEXT3, cursor: 'pointer', lineHeight: 1.4 }}>
                     {p === 'month' ? 'M' : p === 'q' ? 'Q' : 'Y'}
                   </button>
                 ))}
@@ -479,54 +601,57 @@ export default function SalesHeadHomepage() {
               const hit = data.followUps.find(f => f.stage === s)
               if (hit) setDrawerDeal(hit)
             }} />
-            <div style={{ fontSize: 9.5, color: '#5F638F', marginTop: 9 }}>
+            <div style={{ fontSize: 9.5, color: TEXT2, marginTop: 9 }}>
               <span style={{ color: '#C0392B', fontWeight: 700 }}>% drop</span> = fall from previous stage
             </div>
           </div>
 
           {/* Gauge */}
-          <div style={{ background: '#fff', border: '1px solid #DDDDE8', borderRadius: 11, padding: 13, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: '#2A2F69', marginBottom: 11 }}>
-              <i className="ti ti-target" style={{ fontSize: 15, color: '#2A2F69' }} />
+          <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: NAVY, marginBottom: 11 }}>
+              <i className="ti ti-target" style={{ fontSize: 15, color: NAVY }} />
               Monthly revenue target
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9, flex: 1 }}>
               {/* Gauge ring */}
               <div style={{ position: 'relative', width: 118, height: 118 }}>
                 <svg viewBox="0 0 118 118" width="118" height="118" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="59" cy="59" r="49" fill="none" stroke="#DDDDE8" strokeWidth="11" />
+                  <circle cx="59" cy="59" r="49" fill="none" stroke={BORDER} strokeWidth="11" />
                   <circle cx="59" cy="59" r="49" fill="none" stroke={gaugeColor} strokeWidth="11"
                     strokeDasharray={`${gaugeCirc} ${gaugeCirc}`}
-                    strokeDashoffset={gaugeCirc * (1 - pct / 100)}
+                    strokeDashoffset={gaugeCirc * (1 - gaugePct / 100)}
                     strokeLinecap="round" />
                 </svg>
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#2A2F69' }}>{pct}%</div>
-                  <div style={{ fontSize: 9.5, color: '#5F638F' }}>₹{data.revenueTarget.achieved} / {data.revenueTarget.target}Cr</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: NAVY }}>{pct}%</div>
+                  <div style={{ fontSize: 9.5, color: TEXT2 }}>₹{data.revenueTarget.achieved} / {data.revenueTarget.target}Cr</div>
                 </div>
               </div>
               {/* Gauge note */}
-              <div style={{ fontSize: 11, color: '#2A2F69', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: NAVY, textAlign: 'center' }}>
                 Day {day} of {dim} · {dim - day} days remaining in {monthName} ·{' '}
-                {(() => {
-                  const pacePct = Math.round(day / dim * 100)
-                  const diff = pct - pacePct
-                  return diff >= 0
-                    ? <span style={{ color: '#1A6B3A', fontWeight: 700 }}>{diff}% ahead of target pace</span>
-                    : <span style={{ color: '#B42318', fontWeight: 700 }}>{-diff}% behind target pace</span>
-                })()}
+                {pct > 100
+                  ? <span style={{ color: SUCCESS, fontWeight: 700 }}>Target exceeded ✓</span>
+                  : (() => {
+                      const pacePct = Math.round(day / dim * 100)
+                      const diff = pct - pacePct
+                      return diff >= 0
+                        ? <span style={{ color: SUCCESS, fontWeight: 700 }}>{diff}% ahead of pace</span>
+                        : <span style={{ color: '#B42318', fontWeight: 700 }}>{-diff}% behind pace</span>
+                    })()
+                }
               </div>
               {/* Sparkline */}
               <div style={{ width: '100%' }}>
-                <div style={{ fontSize: 9, color: '#5F638F', marginBottom: 4 }}>6-month revenue trend (₹Cr)</div>
+                <div style={{ fontSize: 9, color: TEXT2, marginBottom: 4 }}>6-month revenue trend (₹Cr)</div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 80 }}>
                   {data.revenueTarget.trend.map((t, i) => {
                     const isCur = i === data.revenueTarget.trend.length - 1
                     return (
                       <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 3, minWidth: 0 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: '#2A2F69', lineHeight: 1, whiteSpace: 'nowrap' }}>₹{t.value}</span>
-                        <div style={{ width: '100%', borderRadius: '3px 3px 0 0', height: Math.round(46 * t.value / sparkMax), background: isCur ? '#FF7604' : 'rgba(42,47,105,.35)' }} />
-                        <span style={{ fontSize: 9, color: '#5F638F', lineHeight: 1 }}>{t.month}</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: NAVY, lineHeight: 1, whiteSpace: 'nowrap' }}>₹{t.value}</span>
+                        <div style={{ width: '100%', borderRadius: '3px 3px 0 0', height: Math.round(46 * t.value / sparkMax), background: isCur ? ORANGE : 'rgba(42,47,105,.35)' }} />
+                        <span style={{ fontSize: 9, color: TEXT2, lineHeight: 1 }}>{t.month}</span>
                       </div>
                     )
                   })}
@@ -537,34 +662,34 @@ export default function SalesHeadHomepage() {
         </div>
 
         {/* ── MAIN GRID: Action queue + Customers (left) | Region + Quick actions (right) ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 11, alignItems: 'start' }}>
+        <div className="sh-row-main">
           {/* LEFT colstack */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 0 }}>
             {/* Action queue */}
-            <div ref={actionQRef} style={{ background: '#fff', border: '1px solid #DDDDE8', borderRadius: 11, padding: 13 }}>
+            <div ref={actionQRef} style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: '#2A2F69' }}>
-                  <i className="ti ti-clock-hour-4" style={{ fontSize: 15, color: '#2A2F69' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: NAVY }}>
+                  <i className="ti ti-clock-hour-4" style={{ fontSize: 15, color: NAVY }} />
                   Action queue
                 </div>
                 <a href={erpUrl(
                     activeTab === 0 ? 'quotation?docstatus=1&status=Open' :
-                    activeTab === 1 ? `quotation?docstatus=1&valid_till=Today` :
-                                     'quotation?docstatus=1&status=Lost'
+                    activeTab === 1 ? `quotation?docstatus=1&status=Open&valid_till=%5B%22Between%22%2C%5B%22${mtdTo}%22%2C%22${weekEndStr}%22%5D%5D` :
+                                     `quotation?docstatus=1&status=Lost&modified=%5B%22Between%22%2C%5B%22${mtdFrom}%22%2C%22${mtdTo}%22%5D%5D`
                   )} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, color: '#2A2F69', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 500, textDecoration: 'none' }}>
+                  style={{ fontSize: 10, color: NAVY, cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontWeight: 500, textDecoration: 'none' }}>
                   View all ↗
                 </a>
               </div>
               {/* Tabs */}
-              <div style={{ display: 'flex', borderBottom: '1px solid #DDDDE8', marginBottom: 9, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, marginBottom: 9, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'Follow-ups due today',          count: data.followUps.length,           bg: '#FCEBEB', color: '#991B1B' },
-                  { label: 'Quotations expiring this week', count: data.expiringQuotations.length,  bg: '#FEF3C7', color: '#92600A' },
-                  { label: 'Lost orders this month',        count: data.lostDeals.deals.length,     bg: '#EEF0F3', color: '#5F638F' },
+                  { label: 'Follow-ups due today',          count: data.followUpsTotal,             bg: '#FCEBEB', color: '#991B1B' },
+                  { label: 'Quotations expiring this week', count: data.expiringQuotations.length,  bg: WARNING_BG, color: '#92600A' },
+                  { label: 'Lost orders this month',        count: data.lostDeals.deals.length,     bg: '#EEF0F3', color: TEXT2 },
                 ].map((t, i) => (
                   <button key={i} onClick={() => setActiveTab(i)}
-                    style={{ fontSize: 10.5, padding: '6px 12px', cursor: 'pointer', border: 'none', background: 'none', borderBottom: activeTab === i ? '2px solid #2A2F69' : '2px solid transparent', color: activeTab === i ? '#2A2F69' : '#5F638F', fontWeight: activeTab === i ? 600 : 400, whiteSpace: 'nowrap' }}>
+                    style={{ fontSize: 10.5, padding: '6px 12px', cursor: 'pointer', border: 'none', background: 'none', borderBottom: activeTab === i ? `2px solid ${NAVY}` : '2px solid transparent', color: activeTab === i ? NAVY : TEXT2, fontWeight: activeTab === i ? 600 : 400, whiteSpace: 'nowrap' }}>
                     {t.label}
                     <span style={{ borderRadius: 99, padding: '1px 6px', fontSize: 9, marginLeft: 4, background: t.bg, color: t.color }}>{t.count}</span>
                     {i === 1 && expToday > 0 && (
@@ -579,27 +704,27 @@ export default function SalesHeadHomepage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
                     <thead><tr>
                       {['Quotation', 'Customer', 'Product', 'Value', 'Days', ''].map(h => (
-                        <th key={h} style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px', color: '#8F92B5', textAlign: 'left', padding: '5px 7px', borderBottom: '1px solid #DDDDE8', whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px', color: TEXT3, textAlign: 'left', padding: '5px 7px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
-                      {data.followUps.slice(0, 10).map((r, i) => (
+                      {data.followUps.map((r, i) => (
                         <tr key={i} style={{ cursor: 'pointer', background: r.daysOverdue > 7 ? '#FFF8E6' : '' }}
                           onClick={() => setDrawerDeal(r)}
-                          onMouseOver={e => { if (r.daysOverdue <= 7) e.currentTarget.style.background = '#EAEAF0' }}
+                          onMouseOver={e => { if (r.daysOverdue <= 7) e.currentTarget.style.background = HOVER }}
                           onMouseOut={e => { e.currentTarget.style.background = r.daysOverdue > 7 ? '#FFF8E6' : '' }}>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', color: '#2A2F69', fontWeight: 600 }}>{r.quotation}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>{r.customer}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', color: '#5F638F' }}>{r.product}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>
-                            <span style={{ fontSize: 8.5, fontWeight: 600, padding: '2px 7px', borderRadius: 99, whiteSpace: 'nowrap', background: r.severity === 'red' ? '#FCEBEB' : '#FEF3C7', color: r.severity === 'red' ? '#991B1B' : '#92600A' }}>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: NAVY, fontWeight: 600 }}>{r.quotation}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>{r.customer}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: TEXT2 }}>{r.product}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>
+                            <span style={{ fontSize: 8.5, fontWeight: 600, padding: '2px 7px', borderRadius: 99, whiteSpace: 'nowrap', background: r.severity === 'red' ? '#FCEBEB' : r.severity === 'amber' ? WARNING_BG : '#DCFCE7', color: r.severity === 'red' ? '#991B1B' : r.severity === 'amber' ? '#92600A' : '#166534' }}>
                               {r.daysOverdue}d
                             </span>
                           </td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>
-                            <button onClick={e => e.stopPropagation()}
-                              style={{ fontSize: 9, padding: '3px 9px', borderRadius: 99, background: 'none', cursor: 'pointer', border: '1px solid #2A2F69', color: '#2A2F69' }}>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>
+                            <button onClick={e => { e.stopPropagation(); window.open(erpUrl('communication'), '_blank') }}
+                              style={{ fontSize: 9, padding: '3px 9px', borderRadius: 99, background: 'none', cursor: 'pointer', border: `1px solid ${NAVY}`, color: NAVY }}>
                               Log follow-up
                             </button>
                           </td>
@@ -612,21 +737,22 @@ export default function SalesHeadHomepage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
                     <thead><tr>
                       {['Quotation', 'Customer', 'Value', 'Valid till', ''].map(h => (
-                        <th key={h} style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px', color: '#8F92B5', textAlign: 'left', padding: '5px 7px', borderBottom: '1px solid #DDDDE8', whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px', color: TEXT3, textAlign: 'left', padding: '5px 7px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
                       {data.expiringQuotations.map((r, i) => (
                         <tr key={i} style={{ cursor: 'pointer' }}
-                          onMouseOver={e => e.currentTarget.style.background = '#EAEAF0'}
+                          onClick={() => setDrawerDeal({ quotation: r.quotation, customer: r.customer, product: '—', value: r.value, daysOverdue: 0, validTill: r.validTill, owner: '—', region: '—', stage: 'Quoted', severity: 'red', rank: i + 1 })}
+                          onMouseOver={e => e.currentTarget.style.background = HOVER}
                           onMouseOut={e => e.currentTarget.style.background = ''}>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', color: '#2A2F69', fontWeight: 600 }}>{r.quotation}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>{r.customer}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: NAVY, fontWeight: 600 }}>{r.quotation}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>{r.customer}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>
                             <span style={{ fontSize: 8.5, fontWeight: 600, padding: '2px 7px', borderRadius: 99, background: '#FCEBEB', color: '#991B1B' }}>{r.validTill}</span>
                           </td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>
                             <button onClick={e => { e.stopPropagation(); handleExtend(r.quotation) }}
                               style={{ fontSize: 9, padding: '3px 9px', borderRadius: 99, background: 'none', cursor: 'pointer', border: `1px solid ${NAVY}`, color: NAVY, marginRight: 5 }}>
                               Extend
@@ -645,18 +771,19 @@ export default function SalesHeadHomepage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
                     <thead><tr>
                       {['Quotation', 'Customer', 'Value', 'Lost reason'].map(h => (
-                        <th key={h} style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px', color: '#8F92B5', textAlign: 'left', padding: '5px 7px', borderBottom: '1px solid #DDDDE8', whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.3px', color: TEXT3, textAlign: 'left', padding: '5px 7px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
                       {data.lostDeals.deals.slice(0, 10).map((r, i) => (
                         <tr key={i} style={{ cursor: 'pointer' }}
-                          onMouseOver={e => e.currentTarget.style.background = '#EAEAF0'}
+                          onClick={() => setDrawerDeal({ quotation: r.quotation, customer: r.customer, product: '—', value: r.value, daysOverdue: 0, validTill: '—', owner: '—', region: '—', stage: 'Lost', severity: 'red', rank: i + 1 })}
+                          onMouseOver={e => e.currentTarget.style.background = HOVER}
                           onMouseOut={e => e.currentTarget.style.background = ''}>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', color: '#2A2F69', fontWeight: 600 }}>{r.quotation}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8' }}>{r.customer}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
-                          <td style={{ padding: '6px 7px', borderBottom: '1px solid #DDDDE8', color: '#5F638F' }}>{r.lostReason}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: NAVY, fontWeight: 600 }}>{r.quotation}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>{r.customer}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, fontVariantNumeric: 'tabular-nums' }}>{r.value}</td>
+                          <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}`, color: TEXT2 }}>{r.lostReason}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -666,31 +793,31 @@ export default function SalesHeadHomepage() {
             </div>
 
             {/* Top customers */}
-            <div style={{ background: '#fff', border: '1px solid #DDDDE8', borderRadius: 11, padding: 13 }}>
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: '#2A2F69' }}>
-                  <i className="ti ti-star" style={{ fontSize: 15, color: '#2A2F69' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: NAVY }}>
+                  <i className="ti ti-star" style={{ fontSize: 15, color: NAVY }} />
                   Top customers — order value MTD
                 </div>
-                <a href={erpUrl('sales-order?docstatus=1')} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, color: '#2A2F69', fontWeight: 500, textDecoration: 'none' }}>
+                <a href={erpUrl(`query-report/Sales%20Analytics?tree_type=Customer&based_on=Sales%20Order&from_date=${mtdFrom}&to_date=${mtdTo}`)} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 10, color: NAVY, fontWeight: 500, textDecoration: 'none' }}>
                   View all ↗
                 </a>
               </div>
               <div>
                 {data.topCustomers.map((c, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 7, cursor: 'pointer', borderRadius: 6, padding: 2 }}
-                    onMouseOver={e => e.currentTarget.style.background = '#EAEAF0'}
+                    onMouseOver={e => e.currentTarget.style.background = HOVER}
                     onMouseOut={e => e.currentTarget.style.background = ''}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#2A2F69', width: 18, flexShrink: 0, textAlign: 'center' }}>{c.rank}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: NAVY, width: 18, flexShrink: 0, textAlign: 'center' }}>{c.rank}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
                         <span style={{ fontWeight: 600, flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>{c.value}</span>
                       </div>
-                      <div style={{ fontSize: 9, color: '#5F638F' }}>{c.orders} orders · YTD {c.ytdValue} · last {c.lastOrder}</div>
-                      <div style={{ height: 3, background: '#DDDDE8', borderRadius: 99, marginTop: 3, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', background: '#2A2F69', borderRadius: 99, width: `${c.barPct}%` }} />
+                      <div style={{ fontSize: 9, color: TEXT2 }}>{c.orders} orders · YTD {c.ytdValue} · last {c.lastOrder}</div>
+                      <div style={{ height: 3, background: BORDER, borderRadius: 99, marginTop: 3, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', background: NAVY, borderRadius: 99, width: `${c.barPct}%` }} />
                       </div>
                     </div>
                   </div>
@@ -702,14 +829,14 @@ export default function SalesHeadHomepage() {
           {/* RIGHT colstack */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 0 }}>
             {/* Region chart */}
-            <div style={{ background: '#fff', border: '1px solid #DDDDE8', borderRadius: 11, padding: 13 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: '#2A2F69', marginBottom: 11 }}>
-                <i className="ti ti-map-pin" style={{ fontSize: 15, color: '#2A2F69' }} />
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: NAVY, marginBottom: 11 }}>
+                <i className="ti ti-map-pin" style={{ fontSize: 15, color: NAVY }} />
                 Pipeline by region (₹L)
               </div>
               <div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 9, color: '#5F638F', marginBottom: 8 }}>
-                  {[['#2A2F69', 'Quoted'], ['#B45309', 'Negotiation'], ['#1A6B3A', 'Won']].map(([c, l]) => (
+                <div style={{ display: 'flex', gap: 12, fontSize: 9, color: TEXT2, marginBottom: 8 }}>
+                  {[[NAVY, 'Quoted'], [WARNING, 'Negotiation'], [SUCCESS, 'Won']].map(([c, l]) => (
                     <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: c }} />{l}
                     </span>
@@ -722,20 +849,19 @@ export default function SalesHeadHomepage() {
                   const ww = Math.round(100 * r.won / rMax)
                   return (
                     <div key={i} style={{ marginBottom: 6, borderRadius: 6, padding: 2 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: '#5F638F', marginBottom: 3 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: TEXT2, marginBottom: 3 }}>
                         <span>{r.region}</span>
                         <span style={{ fontVariantNumeric: 'tabular-nums' }}>₹{total}L</span>
                       </div>
-                      {/* inline value labels */}
                       <div style={{ display: 'flex', fontSize: 8.5, fontWeight: 700, margin: '2px 0', lineHeight: 1 }}>
-                        <span style={{ color: '#2A2F69', width: `${wq}%`, whiteSpace: 'nowrap', overflow: 'hidden', paddingRight: 3 }}>₹{r.quoted}L</span>
-                        <span style={{ color: '#B45309', width: `${wn}%`, whiteSpace: 'nowrap', overflow: 'hidden', paddingRight: 3 }}>₹{r.negotiation}L</span>
-                        <span style={{ color: '#1A6B3A', width: `${ww}%`, whiteSpace: 'nowrap', overflow: 'hidden' }}>₹{r.won}L</span>
+                        {wq > 0 && <span style={{ color: NAVY,    width: `${wq}%`, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'clip' }}>{wq >= 8 ? `₹${r.quoted}L` : ''}</span>}
+                        {wn > 0 && <span style={{ color: WARNING, whiteSpace: 'nowrap', minWidth: 'max-content', paddingRight: 5 }}>₹{r.negotiation}L</span>}
+                        {ww > 0 && <span style={{ color: SUCCESS, whiteSpace: 'nowrap', minWidth: 'max-content', paddingRight: 5 }}>₹{r.won}L</span>}
                       </div>
                       <div style={{ display: 'flex', height: 11, borderRadius: 99, overflow: 'hidden', gap: 1 }}>
-                        <div style={{ width: `${wq}%`, background: '#2A2F69', borderRadius: '99px 0 0 99px' }} />
-                        <div style={{ width: `${wn}%`, background: '#B45309' }} />
-                        <div style={{ width: `${ww}%`, background: '#1A6B3A', borderRadius: '0 99px 99px 0' }} />
+                        {wq > 0 && <div title={`Quoted: ₹${r.quoted}L`}           style={{ width: `${wq}%`, background: NAVY,    borderRadius: '99px 0 0 99px', cursor: 'default' }} />}
+                        {wn > 0 && <div title={`Negotiation: ₹${r.negotiation}L`} style={{ width: `${wn}%`, background: WARNING, cursor: 'default' }} />}
+                        {ww > 0 && <div title={`Won: ₹${r.won}L`}                 style={{ width: `${ww}%`, background: SUCCESS, borderRadius: '0 99px 99px 0', cursor: 'default' }} />}
                       </div>
                     </div>
                   )
@@ -744,18 +870,17 @@ export default function SalesHeadHomepage() {
             </div>
 
             {/* Quick actions */}
-            <div style={{ background: '#fff', border: '1px solid #DDDDE8', borderRadius: 11, padding: 13 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: '#2A2F69', marginBottom: 11 }}>
-                <i className="ti ti-bolt" style={{ fontSize: 15, color: '#2A2F69' }} />
+            <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: NAVY, marginBottom: 11 }}>
+                <i className="ti ti-bolt" style={{ fontSize: 15, color: NAVY }} />
                 Quick actions
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+              <div className="sh-quick-btns">
                 {QUICK_ACTIONS.map(a => (
                   <a key={a.label} href={erpUrl(a.path)} target="_blank" rel="noreferrer"
-                    style={{ fontSize: 10.5, padding: 9, borderRadius: 9, border: '1px solid #DDDDE8', background: '#fff', color: '#2A2F69', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none' }}
-                    onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#EAEAF0'}
-                    onMouseOut={e => (e.currentTarget as HTMLElement).style.background = '#fff'}>
-                    <i className={`ti ${a.icon}`} style={{ fontSize: 15, color: '#2A2F69', flexShrink: 0 }} />
+                    className={`sh-action-btn${a.primary ? ' primary' : ''}`}
+                    style={{ gridColumn: a.primary ? '1 / -1' : undefined }}>
+                    <i className={`ti ${a.icon}`} />
                     {a.label}
                   </a>
                 ))}
@@ -836,7 +961,7 @@ export default function SalesHeadHomepage() {
             </div>
             {/* Footer actions */}
             <div style={{ padding: '13px 17px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8 }}>
-              <button onClick={() => toast('Follow-up logging — connect to ERPNext CRM')}
+              <button onClick={() => window.open(erpUrl('communication?reference_doctype=Quotation'), '_blank')}
                 style={{ flex: 1, fontSize: 11, fontWeight: 600, padding: 9, borderRadius: 9, cursor: 'pointer', border: `1px solid ${NAVY}`, background: '#fff', color: NAVY }}>
                 Log follow-up
               </button>
@@ -850,11 +975,73 @@ export default function SalesHeadHomepage() {
       )}
 
       {/* ── TOAST ── */}
+      {convertPrompt && (
+        <>
+          <div onClick={() => setConvertPrompt(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 300 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 14, padding: 28, zIndex: 301, width: 340, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Convert to Sales Order</div>
+            <div style={{ fontSize: 11.5, color: TEXT2, marginBottom: 16 }}>{convertPrompt.quotation}</div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: TEXT2, display: 'block', marginBottom: 6 }}>Delivery Date</label>
+            <input type="date" value={convertPrompt.deliveryDate}
+              onChange={e => setConvertPrompt(p => p ? { ...p, deliveryDate: e.target.value } : p)}
+              style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${BORDER}`, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConvertPrompt(null)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${BORDER}`, background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: TEXT2 }}>
+                Cancel
+              </button>
+              <button onClick={doConvert} disabled={!convertPrompt.deliveryDate}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }}>
+                Convert ↗
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {convertResult && (
+        <>
+          <div onClick={() => setConvertResult(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 300 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 14, padding: 28, zIndex: 301, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,.25)', textAlign: 'center' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#DCFCE7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 26, color: '#166534' }} />
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 6 }}>Sales Order Created</div>
+            <div style={{ fontSize: 12, color: TEXT2, marginBottom: 4 }}>From quotation <strong>{convertResult.quotation}</strong></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: NAVY, background: '#F1F2FB', borderRadius: 8, padding: '8px 12px', margin: '12px 0 18px' }}>
+              {convertResult.soName}
+            </div>
+            <div style={{ fontSize: 11.5, color: TEXT2, marginBottom: 20 }}>
+              A draft Sales Order has been created in ERPNext. Open it to review and submit.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConvertResult(null)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${BORDER}`, background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: TEXT2 }}>
+                Close
+              </button>
+              <a href={convertResult.soUrl} target="_blank" rel="noreferrer" onClick={() => setConvertResult(null)}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                Open in ERPNext ↗
+              </a>
+            </div>
+          </div>
+        </>
+      )}
+
       {actionMsg && (
-        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: NAVY, color: '#fff', fontSize: 12, padding: '10px 16px', borderRadius: 9, boxShadow: '0 10px 30px rgba(0,0,0,.25)', zIndex: 60, maxWidth: '90vw', whiteSpace: 'nowrap' }}>
-          {actionMsg}
+        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: NAVY, color: '#fff', fontSize: 12, padding: '10px 16px', borderRadius: 9, boxShadow: '0 10px 30px rgba(0,0,0,.25)', zIndex: 60, maxWidth: '90vw', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span>{actionMsg.msg}</span>
+          {actionMsg.url && (
+            <a href={actionMsg.url} target="_blank" rel="noreferrer"
+              style={{ color: ORANGE, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Open ↗
+            </a>
+          )}
         </div>
       )}
     </div>
+    </>
   )
 }

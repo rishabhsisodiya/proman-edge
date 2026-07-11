@@ -45,6 +45,8 @@ export async function frappeGet<T = FrappeEnvelope>(
 
   if (!res.ok) {
     log('GET', method, ms, 'err')
+    const body = await res.text().catch(() => '')
+    console.error(`[frappe] GET ${method} failed: HTTP ${res.status}${body ? ` — ${body.slice(0, 500)}` : ''}`)
     throw new Error(`Frappe ${method} → HTTP ${res.status}`)
   }
 
@@ -71,12 +73,27 @@ export async function frappePost<T = FrappeEnvelope>(
   })
   const ms = Date.now() - t0
 
+  const json = await res.json().catch(() => ({})) as { message: T; exc?: string; exception?: string; _server_messages?: string }
+
   if (!res.ok) {
     log('POST', method, ms, 'err')
-    throw new Error(`Frappe POST ${method} → HTTP ${res.status}`)
+    // Extract actual Frappe error from response body
+    const errJson = json as Record<string, unknown>
+    let msg = `HTTP ${res.status}`
+    if (errJson.exc)                msg = String(errJson.exc).split('\n').filter(Boolean).pop() ?? msg
+    if (errJson.exception)          msg = String(errJson.exception)
+    if (errJson._server_messages)   {
+      try {
+        const parsed = JSON.parse(String(errJson._server_messages))
+        const inner  = JSON.parse(Array.isArray(parsed) ? parsed[0] : parsed)
+        if (inner.message) msg = inner.message
+      } catch { /* ignore parse errors */ }
+    }
+    const cleanMsg = msg.replace(/<[^>]+>/g, '').trim()
+    console.error(`[frappe] POST ${method} failed: ${cleanMsg}`)
+    throw new Error(cleanMsg)
   }
 
-  const json = (await res.json()) as { message: T }
   log('POST', method, ms, res.status)
   return assertOk(json.message, method)
 }

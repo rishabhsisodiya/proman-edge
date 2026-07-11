@@ -1,10 +1,16 @@
 /** Format raw rupee values from ERPNext into display strings */
 
+function trimDecimals(n: number, maxDecimals: number): string {
+  return n.toFixed(maxDecimals).replace(/\.?0+$/, '')
+}
+
 export function rupees(value: number): string {
-  if (value >= 10_000_000) return `₹${(value / 10_000_000).toFixed(1)}Cr`
-  if (value >= 100_000)    return `₹${Math.round(value / 100_000)}L`
-  if (value >= 1_000)      return `₹${Math.round(value / 1_000)}K`
-  return `₹${Math.round(value)}`
+  const sign = value < 0 ? '-' : ''
+  const abs = Math.abs(value)
+  if (abs >= 10_000_000) return `${sign}₹${trimDecimals(abs / 10_000_000, 2)}Cr`
+  if (abs >= 100_000)    return `${sign}₹${trimDecimals(abs / 100_000, 1)}L`
+  if (abs >= 1_000)      return `${sign}₹${trimDecimals(abs / 1_000, 1)}K`
+  return `${sign}₹${Math.round(abs)}`
 }
 
 /** ERPNext status string → dashboard direction */

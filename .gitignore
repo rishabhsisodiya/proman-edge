@@ -9,3 +9,7 @@ build/
 .DS_Store
 .cache/
 /proman-docs
+/docs
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
+backend/data/*.json

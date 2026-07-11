@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primary */
+  --color-navy:       #2A2F69;
+  --color-navy-deep:  #242859;
+  --color-navy-mid:   #3B4280;
+  --color-navy-tint:  #EAEAF0;
+  --color-navy-soft:  #F7F7F9;
+  --color-orange:     #FF7604;
+  --color-white:      #FFFFFF;
+
+  /* Text */
+  --text-primary:   #2A2F69;
+  --text-secondary: #5F638F;
+  --text-disabled:  #8F92B5;
+  --text-on-dark:   #FFFFFF;
+
+  /* Borders */
+  --border: #DDDDE8;
+
+  /* Semantic */
+  --success:    #1A6B3A;
+  --success-bg: #DCFCE7;
+  --warning:    #B45309;
+  --warning-bg: #FEF3C7;
+  --error:      #A32D2D;
+  --error-bg:   #FEF2F2;
+
+  /* Spacing (base-4) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+
+  /* Border radius */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 99px;
+
+  /* Font */
+  --font: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+
+  --background: var(--color-white);
+  --foreground: var(--color-navy);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font);
 }

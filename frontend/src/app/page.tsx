@@ -93,27 +93,20 @@ export default function LoginPage() {
           {/* Dev hint — visible only in mock mode */}
           <div className="mt-6 pt-5 border-t border-gray-100">
             <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">
-              Dev mock users
+              Demo access
             </p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                { label: 'Sales Head', username: 'satheesh' },
-                { label: 'Mfg Head', username: 'manoj' },
-                { label: 'Finance Head', username: 'lakshman' },
-                { label: 'MD', username: 'prashant' },
-              ].map((u) => (
-                <button
-                  key={u.username}
-                  type="button"
-                  onClick={() => { setUsername(u.username); setPassword('password') }}
-                  className="text-left px-2.5 py-1.5 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-200 text-[11px] text-gray-600 transition"
-                >
-                  <span className="font-medium text-gray-800">{u.label}</span>
-                  <br />
-                  <span className="text-gray-400">{u.username} / password</span>
-                </button>
-              ))}
-            </div>
+            <p className="text-[11px] text-gray-400 mb-2">
+              Click below to auto-fill demo credentials and sign in.
+            </p>
+            <button
+              type="button"
+              onClick={() => { setUsername('test@tcbinfotech.co.in'); setPassword('Test@123') }}
+              className="w-full text-left px-3 py-2.5 rounded-md bg-blue-50 hover:bg-blue-100 border border-blue-200 text-[11px] text-blue-700 transition"
+            >
+              <span className="font-semibold text-blue-900">Sales Head — Demo</span>
+              <br />
+              <span className="text-blue-500">test@tcbinfotech.co.in · ••••••••</span>
+            </button>
           </div>
         </div>
 

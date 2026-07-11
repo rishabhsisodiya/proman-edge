@@ -1,5 +1,4 @@
 import { cacheGet, cacheSet } from '../cache/redis'
-import { salesHomepageMock } from '../mock/sales'
 import type { SalesHomepageData, KPI, FunnelStage, QuotationDetail } from '../types/sales'
 import { frappeGet, frappePost } from '../lib/frappeClient'
 import { rupees, statusToDirection, statusToColor, dateLabel } from '../lib/format'
@@ -17,7 +16,6 @@ import type {
   FrappeQuotationDetail,
 } from '../types/frappe'
 
-const useMock = () => process.env.USE_MOCK !== 'false'
 const CACHE_TTL = 300 // 5 minutes
 
 const SALES         = 'proman_edge.api.sales'
@@ -31,18 +29,7 @@ export async function getSalesHomepage(companies: string[]): Promise<SalesHomepa
   const cached = await cacheGet<SalesHomepageData>(cacheKey)
   if (cached) return cached
 
-  let data: SalesHomepageData
-
-  if (useMock()) {
-    data = { ...salesHomepageMock, syncedAt: new Date().toISOString() }
-  } else if (companies.length === 1) {
-    data = await fetchFromERPNext('all') // division=all scoped to the single site's credentials
-  } else {
-    // Multiple companies — for now use 'all' division which Frappe aggregates on its side
-    // TODO: fan out to separate Frappe sites when each company has its own site credentials
-    data = await fetchFromERPNext('all')
-  }
-
+  const data = await fetchFromERPNext('all')
   await cacheSet(cacheKey, data, CACHE_TTL)
   return data
 }
@@ -271,7 +258,8 @@ async function fetchFromERPNext(division: string): Promise<SalesHomepageData> {
       })),
     },
 
-    followUps: followUpItems,
+    followUps:      followUpItems,
+    followUpsTotal: followups.summary?.count ?? followUpItems.length,
 
     expiringQuotations: expiringItems,
 
@@ -302,34 +290,6 @@ export { mergeResults }
 // ── quotation detail ──────────────────────────────────────────────────────
 
 export async function getQuotationDetail(quotation: string): Promise<QuotationDetail> {
-  if (useMock()) {
-    const fu = salesHomepageMock.followUps.find(f => f.quotation === quotation)
-    return {
-      quotation,
-      customer:  fu?.customer ?? 'Unknown Customer',
-      product:   fu?.product  ?? '—',
-      value:     fu?.value    ?? '—',
-      status:    fu?.stage    ?? 'Quoted',
-      region:    fu?.region   ?? '—',
-      quotedDate: `${fu?.daysOverdue ?? 5}d ago`,
-      validTill:  fu?.validTill ?? '—',
-      daysOverdue: fu?.daysOverdue ?? 0,
-      severity:   fu?.severity ?? 'amber',
-      owner:      fu?.owner ?? '—',
-      contact:    null,
-      timeline: [
-        { date: `${fu?.daysOverdue ?? 5}d ago`, event: `Quotation sent — ${fu?.product ?? 'product'} for ${fu?.customer ?? 'customer'}` },
-        { date: `${(fu?.daysOverdue ?? 5) - 2}d ago`, event: 'Technical clarification document shared' },
-        { date: `${(fu?.daysOverdue ?? 5) - 1}d ago`, event: 'Customer requested revised delivery schedule' },
-        { date: 'No activity since', event: 'Awaiting customer response' },
-      ],
-      suggestedNextAction: fu && fu.daysOverdue > 7
-        ? `No contact in ${fu.daysOverdue} days. Call ${fu.owner} contact today and extend validity before ${fu.validTill}.`
-        : `Follow up to keep momentum before validity lapses on ${fu?.validTill ?? '—'}.`,
-      deepLink: `https://pispl.frappe.cloud/app/quotation/${quotation}`,
-    }
-  }
-
   // get_quotation_detail returns standard envelope; deal is in items[0]
   const env = await frappeGet<FrappeEnvelope<Record<string,unknown>, FrappeQuotationDetail>>(
     `${SALES}.get_quotation_detail`,
@@ -363,25 +323,27 @@ export async function extendQuotation(
   quotation: string,
   opts: { valid_till?: string; days?: number } = {},
 ): Promise<{ ok: boolean; validTill?: string }> {
-  if (useMock()) {
-    const d = new Date(); d.setDate(d.getDate() + (opts.days ?? 7))
-    return { ok: true, validTill: opts.valid_till ?? d.toISOString().slice(0, 10) }
-  }
-  const env = await frappePost<FrappeEnvelope<{ valid_till?: string }, unknown>>(
+  const body: Record<string, unknown> = { quotation }
+  if (opts.valid_till) body.valid_till = opts.valid_till
+  else if (opts.days)  body.days = opts.days
+
+  const result = await frappePost<Record<string, unknown>>(
     `${SALES_ACTIONS}.extend_quotation`,
-    { quotation, ...opts },
+    body,
   )
-  return { ok: true, validTill: env.summary.valid_till }
+  return { ok: true, validTill: result?.valid_till as string | undefined }
 }
 
 export async function convertToSalesOrder(
   quotation: string,
   deliveryDate?: string,
 ): Promise<{ ok: boolean; salesOrder?: string }> {
-  if (useMock()) return { ok: true, salesOrder: 'SAL-SO-2026-MOCK' }
-  const env = await frappePost<FrappeEnvelope<{ sales_order?: string }, unknown>>(
+  const body: Record<string, unknown> = { quotation }
+  if (deliveryDate) body.delivery_date = deliveryDate
+
+  const result = await frappePost<Record<string, unknown>>(
     `${SALES_ACTIONS}.convert_quotation_to_sales_order`,
-    { quotation, ...(deliveryDate ? { delivery_date: deliveryDate } : {}) },
+    body,
   )
-  return { ok: true, salesOrder: env.summary.sales_order }
+  return { ok: true, salesOrder: result?.name as string | undefined }
 }

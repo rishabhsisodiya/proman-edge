@@ -1,8 +1,9 @@
 'use client'
 import type { AttentionItem } from '@/types/sales'
+import { colors } from '@/lib/brand'
 
-const DOT_COLOR = { red: '#A32D2D', amber: '#854F0B' }
-const COUNT_COLOR = { red: '#A32D2D', amber: '#854F0B' }
+const DOT_COLOR: Record<string, string> = { red: colors.error, amber: colors.warning, green: colors.success }
+const COUNT_COLOR: Record<string, string> = { red: colors.error, amber: colors.warning, green: colors.success }
 
 export default function AttentionStrip({
   items,
@@ -16,7 +17,7 @@ export default function AttentionStrip({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
       <p className="text-[10px] font-medium text-gray-500 mb-2 flex items-center gap-1">
-        <span style={{ color: '#A32D2D' }}>●</span> Needs your attention now
+        <span style={{ color: colors.error }}>●</span> Needs your attention now
       </p>
       <div className="grid grid-cols-3 gap-2">
         {items.map((a, i) => (
@@ -35,7 +36,7 @@ export default function AttentionStrip({
               </p>
               <p className="text-[10px] font-medium text-gray-800 mt-0.5">{a.title}</p>
               <p className="text-[9px] text-gray-500 mt-0.5 truncate">{a.sub}</p>
-              <p className="text-[9px] mt-1.5" style={{ color: '#1A4A8A' }}>→ {a.type === 'expiring' ? 'Review all' : a.type === 'followup' ? 'View queue' : 'View analysis'}</p>
+              <p className="text-[9px] mt-1.5" style={{ color: colors.navy }}>→ {a.type === 'expiring' ? 'Review all' : a.type === 'followup' ? 'View queue' : 'View analysis'}</p>
             </div>
           </div>
         ))}

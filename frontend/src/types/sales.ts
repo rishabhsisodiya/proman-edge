@@ -10,7 +10,7 @@ export interface KPI {
 export interface FunnelStage {
   stage: string
   count: number
-  value: number
+  value: number | null
   avgDays: number | null
   isStalling: boolean
   dropPct: number | null
@@ -21,7 +21,7 @@ export interface AttentionItem {
   count: string
   title: string
   sub: string
-  severity: 'red' | 'amber'
+  severity: 'red' | 'amber' | 'green'
 }
 
 export interface FollowUpItem {
@@ -34,7 +34,8 @@ export interface FollowUpItem {
   owner: string
   region: string
   stage: string
-  severity: 'red' | 'amber'
+  severity: 'red' | 'amber' | 'green'
+  rank?: number
 }
 
 export interface ExpiringQuotation {
@@ -140,6 +141,7 @@ export interface SalesHomepageData {
   funnel: { month: FunnelStage[]; q: FunnelStage[]; ytd: FunnelStage[] }
   revenueTarget: { pct: number; achieved: number; target: number; daysRemaining: number; trend: RevenueTrend[] }
   followUps: FollowUpItem[]
+  followUpsTotal: number
   expiringQuotations: ExpiringQuotation[]
   lostDeals: { summary: LostReasonSummary[]; deals: LostDeal[] }
   topCustomers: TopCustomer[]
