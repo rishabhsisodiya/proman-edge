@@ -7,9 +7,10 @@ TARGET=${1:-all}  # all | backend | frontend
 ROOT=/root/proman
 
 pull() {
-  echo "==> Pulling latest code..."
   cd $ROOT
-  git pull origin feat/mariaDB
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  echo "==> Pulling latest code (branch: $BRANCH)..."
+  git pull origin "$BRANCH"
 }
 
 build_backend() {
