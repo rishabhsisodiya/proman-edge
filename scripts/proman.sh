@@ -25,7 +25,7 @@ case $ENV in
     ;;
   prod)
     ROOT=/root/proman-prod
-    ECOSYSTEM=/root/proman/ecosystem.prod.config.js
+    ECOSYSTEM=/root/proman-prod/ecosystem.prod.config.js
     DOPPLER_CONFIG=prd
     DOPPLER_TOKEN=${DOPPLER_TOKEN_PROD:?DOPPLER_TOKEN_PROD not set in /root/.proman-secrets/doppler.env}
     BACKEND=proman-prod-backend
