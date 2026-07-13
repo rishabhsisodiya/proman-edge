@@ -13,13 +13,23 @@ import type {
 
 const erpBaseUrl = () => (process.env.FRAPPE_BASE_URL ?? '').replace(/\/$/, '')
 
+// ── Fiscal-year helper (Indian FY: April – March) ────────────────────────────
+// Mirrors financeServiceDB.ts's periodRange() FY math.
+
+function currentFiscalYearRange(): { fyStart: string; fyEnd: string } {
+  const now = new Date()
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  return { fyStart: `${y}-04-01`, fyEnd: `${y + 1}-03-31` }
+}
+
 // ── W-DISP-01 — Ready to dispatch (KPI) — QI now keyed to Work Order ────────
 
-async function getReadyToDispatch(): Promise<ReadyToDispatch> {
+async function getReadyToDispatch(fyStart: string, fyEnd: string): Promise<ReadyToDispatch> {
   const rows = await query<{ ready_to_dispatch: number }>(
     `SELECT COUNT(DISTINCT so.name) AS ready_to_dispatch
      FROM \`tabSales Order\` so
      WHERE so.docstatus = 1
+       AND so.transaction_date BETWEEN ? AND ?
        AND EXISTS (
          SELECT 1 FROM \`tabWork Order\` wo
          WHERE wo.sales_order = so.name AND wo.docstatus = 1 AND wo.status = 'Completed'
@@ -29,17 +39,19 @@ async function getReadyToDispatch(): Promise<ReadyToDispatch> {
                                      WHERE qi.reference_type = 'Job Card' AND qi.reference_name = jc.name
                                        AND qi.status = 'Accepted'))
        )`,
+    [fyStart, fyEnd],
   )
   return { count: Number(rows[0]?.ready_to_dispatch ?? 0) }
 }
 
 // ── W-DISP-02 — Dispatch blocked (KPI) ───────────────────────────────────────
 
-async function getDispatchBlocked(): Promise<DispatchBlocked> {
+async function getDispatchBlocked(fyStart: string, fyEnd: string): Promise<DispatchBlocked> {
   const rows = await query<{ dispatch_blocked: number }>(
     `SELECT COUNT(*) AS dispatch_blocked
      FROM \`tabDelivery Note\` dn
      WHERE dn.docstatus = 0 AND dn.is_return = 0
+       AND dn.posting_date BETWEEN ? AND ?
        AND (
              dn.per_billed < 100
           OR IFNULL(dn.ewaybill, '')   = ''
@@ -52,6 +64,7 @@ async function getDispatchBlocked(): Promise<DispatchBlocked> {
                SELECT 1 FROM \`tabQuality Inspection\` qi
                WHERE qi.reference_type = 'Delivery Note' AND qi.reference_name = dn.name)
            )`,
+    [fyStart, fyEnd],
   )
   return { count: Number(rows[0]?.dispatch_blocked ?? 0) }
 }
@@ -95,7 +108,7 @@ async function getEwayBillsExpiring(): Promise<EwayBillsExpiring> {
 
 // ── W-DISP-05 — Revenue pending invoice (KPI) — DN status = 'To Bill' ───────
 
-async function getRevenuePendingInvoice(): Promise<RevenuePendingInvoice> {
+async function getRevenuePendingInvoice(fyStart: string, fyEnd: string): Promise<RevenuePendingInvoice> {
   const rows = await query<{ dns_pending_invoice: number; revenue_pending: number }>(
     `SELECT
         COUNT(*)                        AS dns_pending_invoice,
@@ -103,7 +116,8 @@ async function getRevenuePendingInvoice(): Promise<RevenuePendingInvoice> {
      FROM \`tabDelivery Note\`
      WHERE docstatus = 1 AND is_return = 0
        AND status = 'To Bill'
-       AND YEAR(posting_date) = YEAR(CURDATE())`,
+       AND posting_date BETWEEN ? AND ?`,
+    [fyStart, fyEnd],
   )
   return {
     count: Number(rows[0]?.dns_pending_invoice ?? 0),
@@ -128,9 +142,9 @@ async function getDispatchStageFlow(): Promise<DispatchStageFlow> {
        SELECT
          SUM(f.has_qc = 0)                                                    AS qc_pending,
          SUM(f.has_qc = 1)                                                    AS qc_cleared,
-         SUM(f.has_qc=1 AND NOT (f.has_si=1 AND f.has_po=1 AND f.has_eway=1)) AS docs_pending,
-         SUM(f.has_qc=1 AND f.has_si=1 AND f.has_po=1 AND f.has_eway=1)       AS docs_complete,
-         SUM(f.has_qc=1 AND f.has_si=1 AND f.has_po=1 AND f.has_eway=1
+         SUM(f.has_qc=1 AND NOT (f.has_si=1 AND f.has_po=1))                  AS docs_pending,
+         SUM(f.has_qc=1 AND f.has_si=1 AND f.has_po=1)                        AS docs_complete,
+         SUM(f.has_qc=1 AND f.has_si=1 AND f.has_po=1
              AND IFNULL(dn.vehicle_no,'')<>'')                               AS vehicle_booked
        FROM \`tabDelivery Note\` dn
        JOIN (
@@ -139,7 +153,6 @@ async function getDispatchStageFlow(): Promise<DispatchStageFlow> {
                   WHERE qi.reference_type='Delivery Note' AND qi.reference_name=dn2.name AND qi.status='Accepted') AS has_qc,
            EXISTS(SELECT 1 FROM \`tabDelivery Note Item\` d2 JOIN \`tabSales Order\` s2 ON s2.name=d2.against_sales_order
                   WHERE d2.parent=dn2.name AND IFNULL(s2.po_no,'')<>'') AS has_po,
-           (IFNULL(dn2.ewaybill,'') <> '') AS has_eway,
            (dn2.per_billed >= 100)         AS has_si
          FROM \`tabDelivery Note\` dn2 WHERE dn2.docstatus=0 AND dn2.is_return=0
        ) f ON f.name = dn.name
@@ -173,7 +186,6 @@ async function getDispatchPipelineTable(): Promise<DispatchPipelineRow[]> {
                            WHERE qi.reference_type='Delivery Note' AND qi.reference_name=dn.name) THEN 'QC pending'
           WHEN NOT EXISTS (SELECT 1 FROM \`tabDelivery Note Item\` d2 JOIN \`tabSales Order\` s2 ON s2.name=d2.against_sales_order
                            WHERE d2.parent=dn.name AND IFNULL(s2.po_no,'')<>'') THEN 'Customer PO pending'
-          WHEN IFNULL(dn.ewaybill,'')  = '' THEN 'e-Way pending'
           WHEN IFNULL(dn.vehicle_no,'') = '' THEN 'Vehicle pending'
           ELSE 'Ready'
         END AS blocker
@@ -181,7 +193,7 @@ async function getDispatchPipelineTable(): Promise<DispatchPipelineRow[]> {
      LEFT JOIN \`tabDelivery Note Item\` di ON di.parent = dn.name
      LEFT JOIN \`tabSales Order\` so ON so.name = di.against_sales_order
      WHERE dn.docstatus = 0 AND dn.is_return = 0
-     GROUP BY dn.name, dn.customer_name, dn.ewaybill, dn.vehicle_no
+     GROUP BY dn.name, dn.customer_name, dn.vehicle_no
      ORDER BY target_date ASC`,
   )
   return rows.map(r => ({
@@ -359,7 +371,6 @@ async function getDnsToSubmit(): Promise<DnToSubmitRow[]> {
      LEFT JOIN \`tabDelivery Note Item\` dni ON dni.parent = dn.name
      LEFT JOIN \`tabSales Order\` so ON so.name = dni.against_sales_order
      WHERE dn.docstatus = 0 AND dn.is_return = 0
-       AND IFNULL(dn.ewaybill,'')   <> ''
        AND IFNULL(dn.vehicle_no,'') <> ''
        AND EXISTS (SELECT 1 FROM \`tabDelivery Note Item\` d2 JOIN \`tabSales Order\` s2 ON s2.name=d2.against_sales_order
                    WHERE d2.parent=dn.name AND IFNULL(s2.po_no,'')<>'')
@@ -489,26 +500,29 @@ async function getDispatchAlerts(): Promise<DispatchAlerts> {
 const CACHE_KEY = 'dispatch:homepage'
 const CACHE_TTL = 300 // 5 minutes — matches frontend refreshInterval
 
-export async function getDispatchHomepage(): Promise<DispatchHomepageData> {
-  const cached = await cacheGet<DispatchHomepageData>(CACHE_KEY)
+export async function getDispatchHomepage(fyStart?: string, fyEnd?: string): Promise<DispatchHomepageData> {
+  const fy = fyStart && fyEnd ? { fyStart, fyEnd } : currentFiscalYearRange()
+  const cacheKey = `${CACHE_KEY}:${fy.fyStart}:${fy.fyEnd}`
+
+  const cached = await cacheGet<DispatchHomepageData>(cacheKey)
   if (cached) return cached
 
-  const data = await computeDispatchHomepage()
-  await cacheSet(CACHE_KEY, data, CACHE_TTL)
+  const data = await computeDispatchHomepage(fy.fyStart, fy.fyEnd)
+  await cacheSet(cacheKey, data, CACHE_TTL)
   return data
 }
 
-async function computeDispatchHomepage(): Promise<DispatchHomepageData> {
+async function computeDispatchHomepage(fyStart: string, fyEnd: string): Promise<DispatchHomepageData> {
   const [
     readyToDispatch, dispatchBlocked, dispatchedThisWeek, ewayBillsExpiring,
     revenuePendingInvoice, stageFlow, pipelineTable, vehicleBooking,
     scheduleThisWeek, onTimeDispatch, actionQueue, alerts,
   ] = await Promise.all([
-    getReadyToDispatch(),
-    getDispatchBlocked(),
+    getReadyToDispatch(fyStart, fyEnd),
+    getDispatchBlocked(fyStart, fyEnd),
     getDispatchedThisWeek(),
     getEwayBillsExpiring(),
-    getRevenuePendingInvoice(),
+    getRevenuePendingInvoice(fyStart, fyEnd),
     getDispatchStageFlow(),
     getDispatchPipelineTable(),
     getVehicleBooking(),

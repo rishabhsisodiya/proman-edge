@@ -30,9 +30,17 @@ function fyQuarterLabel(date: Date): string {
   return `Q${q} FY${String(fy + 1).slice(-2)}`
 }
 
+// ── Fiscal-year helper (Indian FY: April – March) ────────────────────────────
+
+function currentFiscalYearRange(): { fyStart: string; fyEnd: string } {
+  const now = new Date()
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  return { fyStart: `${y}-04-01`, fyEnd: `${y + 1}-03-31` }
+}
+
 // ── W-PROC-01..05 KPI tiles ──────────────────────────────────────────────────
 
-async function getKpis(): Promise<ProcurementKpis> {
+async function getKpis(fyStart: string, fyEnd: string): Promise<ProcurementKpis> {
   const now   = new Date()
   const month = now.toLocaleString('default', { month: 'long' })
   const year  = now.getFullYear()
@@ -43,14 +51,18 @@ async function getKpis(): Promise<ProcurementKpis> {
       // W-PROC-01
       query<{ cnt: number }>(
         `SELECT COUNT(*) AS cnt FROM \`tabPurchase Order\`
-         WHERE workflow_state LIKE 'Awaiting%Approval'`,
+         WHERE workflow_state LIKE 'Awaiting%Approval'
+           AND transaction_date BETWEEN ? AND ?`,
+        [fyStart, fyEnd],
       ),
 
       // W-PROC-02
       query<{ cnt: number; total: number }>(
         `SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total), 0) AS total
          FROM \`tabPurchase Order\`
-         WHERE docstatus = 1 AND status IN ('To Receive', 'To Receive and Bill')`,
+         WHERE docstatus = 1 AND status IN ('To Receive', 'To Receive and Bill')
+           AND transaction_date BETWEEN ? AND ?`,
+        [fyStart, fyEnd],
       ),
 
       // W-PROC-03
@@ -811,12 +823,13 @@ export async function makeGRN(poName: string): Promise<ProcurementActionResult> 
 
 // ── Main homepage aggregate ───────────────────────────────────────────────────
 
-export async function getProcurementHomepage(): Promise<ProcurementHomepageData> {
+export async function getProcurementHomepage(fyStart?: string, fyEnd?: string): Promise<ProcurementHomepageData> {
   const base = erpBaseUrl()
+  const fy = fyStart && fyEnd ? { fyStart, fyEnd } : currentFiscalYearRange()
 
   const [kpis, approvalQueue, overduePOs, criticalShortages, vendorPerformance, spendGauge, actionQueue, expectedReceipts] =
     await Promise.all([
-      getKpis(),
+      getKpis(fy.fyStart, fy.fyEnd),
       getApprovalQueue(),
       getOverduePOs(),
       getCriticalShortages(),

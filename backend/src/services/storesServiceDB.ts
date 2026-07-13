@@ -63,12 +63,14 @@ async function getStockBelowReorder(): Promise<StockBelowReorder> {
 // ── W-STR-04 — Subcontracting orders (KPI) ───────────────────────────────────
 // Replaces "Return Notes Open" (Work Order excess) in v2.
 
-async function getSubcontractingOrders(): Promise<SubcontractingOrders> {
+async function getSubcontractingOrders(fyStart: string, fyEnd: string): Promise<SubcontractingOrders> {
   const [countRows, transferredRows] = await Promise.all([
     query<{ subcontracting_pending: number }>(
       `SELECT COUNT(*) AS subcontracting_pending
-       FROM \`tabSubcontracting Order\`
-       WHERE status IN ('Open', 'Draft', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
+       FROM \`tabSubcontracting Order\` so
+       WHERE so.status IN ('Open', 'Draft', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')
+         AND so.transaction_date BETWEEN ? AND ?`,
+      [fyStart, fyEnd],
     ),
     // Secondary figure (K-04): submitted "Send to Subcontractor" stock entries
     // linked to currently-open SCOs — shown under the count.
@@ -77,7 +79,9 @@ async function getSubcontractingOrders(): Promise<SubcontractingOrders> {
        FROM \`tabStock Entry\` se
        JOIN \`tabSubcontracting Order\` so ON so.name = se.subcontracting_order
        WHERE se.docstatus = 1 AND se.stock_entry_type = 'Send to Subcontractor'
-         AND so.status IN ('Open', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')`,
+         AND so.status IN ('Open', 'Material Transferred', 'Partial Material Transferred', 'Partially Received')
+         AND so.transaction_date BETWEEN ? AND ?`,
+      [fyStart, fyEnd],
     ),
   ])
   return {
@@ -439,16 +443,25 @@ export async function createPoFromMr(
 const CACHE_KEY = 'stores:homepage'
 const CACHE_TTL = 300 // 5 minutes — matches frontend refreshInterval
 
-export async function getStoresHomepage(): Promise<StoresHomepageData> {
-  const cached = await cacheGet<StoresHomepageData>(CACHE_KEY)
+function currentFiscalYearRange(): { fyStart: string; fyEnd: string } {
+  const now = new Date()
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  return { fyStart: `${y}-04-01`, fyEnd: `${y + 1}-03-31` }
+}
+
+export async function getStoresHomepage(fyStart?: string, fyEnd?: string): Promise<StoresHomepageData> {
+  const fy = fyStart && fyEnd ? { fyStart, fyEnd } : currentFiscalYearRange()
+  const cacheKey = `${CACHE_KEY}:${fy.fyStart}:${fy.fyEnd}`
+
+  const cached = await cacheGet<StoresHomepageData>(cacheKey)
   if (cached) return cached
 
-  const data = await computeStoresHomepage()
-  await cacheSet(CACHE_KEY, data, CACHE_TTL)
+  const data = await computeStoresHomepage(fy.fyStart, fy.fyEnd)
+  await cacheSet(cacheKey, data, CACHE_TTL)
   return data
 }
 
-async function computeStoresHomepage(): Promise<StoresHomepageData> {
+async function computeStoresHomepage(fyStart: string, fyEnd: string): Promise<StoresHomepageData> {
   const [
     grnsPendingToday, materialIssuesPending, stockBelowReorder, subcontractingOrders,
     pendingGrnList, materialIssueQueue, stockAlerts, expectedDeliveries,
@@ -457,7 +470,7 @@ async function computeStoresHomepage(): Promise<StoresHomepageData> {
     getGrnsPendingToday(),
     getMaterialIssuesPending(),
     getStockBelowReorder(),
-    getSubcontractingOrders(),
+    getSubcontractingOrders(fyStart, fyEnd),
     getPendingGrnList(),
     getMaterialIssueQueue(),
     getStockAlerts(),
