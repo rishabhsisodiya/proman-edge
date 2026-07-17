@@ -11,6 +11,8 @@ import {
   logFollowUp,
   makeGRN,
 } from '@/hooks/useProcurementHomepage'
+import { FiscalYearSelect } from '@/components/widgets/FiscalYearSelect'
+import { currentFiscalYearStart } from '@/lib/fiscalYear'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import type {
@@ -1125,7 +1127,8 @@ function Toast({ msg }: { msg: string }) {
 export default function ProcurementHeadPage() {
   const router = useRouter()
   const { user } = useCurrentUser()
-  const { data, isLoading, isError, refresh } = useProcurementHomepage()
+  const [fyStartYear, setFyStartYear] = useState(currentFiscalYearStart())
+  const { data, isLoading, isError, refresh } = useProcurementHomepage(fyStartYear)
 
   const [spendMode, setSpendMode]   = useState<'M' | 'Q' | 'Y'>('M')
   const [vendorMode, setVendorMode] = useState<VendorMode>('Q')
@@ -1253,6 +1256,7 @@ export default function ProcurementHeadPage() {
 
           {/* Right: actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <FiscalYearSelect value={fyStartYear} onChange={setFyStartYear} />
 
             {/* Dashboard switcher */}
             <div style={{ position: 'relative' }} ref={switcherRef}>

@@ -29,9 +29,7 @@ ERPNext v15 (Frappe Cloud × 5 sites)
 PROMAN/
 ├── frontend/          # Next.js app — pages, components, hooks, types
 ├── backend/           # Express API — routes, services, mock data
-├── scripts/           # One-off scripts (data seeding, migrations)
-├── docs/              # Developer guides and API specs
-└── proman-docs/       # Client documents, UX mockups, brand guidelines
+└── scripts/           # One-off scripts (data seeding, migrations, deployment)
 ```
 
 ---
@@ -41,7 +39,7 @@ PROMAN/
 - Node.js 20+
 - npm 10+
 - Redis (via Homebrew)
-- ERPNext local bench OR Frappe Cloud credentials (see [ERP Setup](docs/erp-setup.md))
+- ERPNext local bench OR Frappe Cloud credentials
 
 ---
 
@@ -124,14 +122,14 @@ Set `USE_MOCK=false` and fill in `FRAPPE_BASE_URL`, `FRAPPE_API_KEY`, `FRAPPE_AP
 
 ## Dashboards Built
 
-| Role | Route | Status |
+| Role | Route | Backend Route |
 |---|---|---|
-| Sales Head | `/home/sales-head` | Live |
-| Manufacturing Head | `/home/manufacturing-head` | Mock data |
-| Finance Head | `/home/finance-head` | Planned |
-| Procurement Head | `/home/procurement-head` | Planned |
-| Engineering Head | `/home/engineering-head` | Planned |
-| Managing Director | `/home/md` | Planned |
+| Sales Head | `/home/sales-head` | `backend/src/routes/sales.ts` |
+| Manufacturing Head | `/home/manufacturing-head` | `backend/src/routes/manufacturing.ts` |
+| Finance Head | `/home/finance-head` | `backend/src/routes/finance.ts` |
+| Procurement Head | `/home/procurement-head` | `backend/src/routes/procurement.ts` |
+| Dispatch Head | `/home/dispatch-head` | `backend/src/routes/dispatch.ts` |
+| Stores Head | `/home/stores-head` | `backend/src/routes/stores.ts` |
 
 ---
 
@@ -143,17 +141,52 @@ Set `USE_MOCK=false` and fill in `FRAPPE_BASE_URL`, `FRAPPE_API_KEY`, `FRAPPE_AP
 | `GET /api/v1/auth/me` | Validate JWT, return user details + role |
 | `GET /api/v1/sales/homepage` | All Sales Head widget data |
 | `GET /api/v1/manufacturing/homepage` | All Manufacturing Head widget data |
+| `GET /api/v1/finance/homepage` | All Finance Head widget data |
+| `GET /api/v1/procurement/homepage` | All Procurement Head widget data |
+| `GET /api/v1/dispatch/homepage` | All Dispatch Head widget data |
+| `GET /api/v1/stores/homepage` | All Stores Head widget data |
 | `GET /health` | Health check |
 
 ---
 
-## Docs
+## Server Deployment (dev + prod)
 
-- [ERP Setup — Local & Frappe Cloud](docs/erp-setup.md)
-- [API Spec — get_user_role endpoint](docs/api/get_user_role_endpoint.md)
-- [Local Development Setup (detailed)](proman-docs/local-setup.md)
-- [Brand Guidelines](proman-docs/BRAND_GUIDELINES.md)
-- [Dev Guide](proman-docs/proman/PROMAN_EDGE_DEV_GUIDE.md)
+The Hostinger server (`187.127.182.29`) runs two independent instances side by side — `dev` (ports 3000/4000) and `prod` (ports 3001/4001) — both pulling secrets from Doppler (project `proman`, configs `dev`/`prd`) instead of local `.env` files. `NEXT_PUBLIC_*` values are baked in at build time, so builds run through `doppler run` too.
+
+Secrets live outside git in `/root/.proman-secrets/doppler.env` on the server:
+
+```bash
+DOPPLER_TOKEN_DEV=dp.st.dev.xxxxxxxxxxxx
+DOPPLER_TOKEN_PROD=dp.st.prd.xxxxxxxxxxxx
+```
+
+### `scripts/proman.sh` — All Commands
+
+Run from `/root/proman` (the repo checkout that holds `ecosystem.config.js` / `ecosystem.prod.config.js`):
+
+```bash
+./scripts/proman.sh <dev|prod> check             # verify Doppler secrets are reachable for that config
+./scripts/proman.sh <dev|prod> start             # pm2 start (fresh registration) + pm2 save
+./scripts/proman.sh <dev|prod> delete            # pm2 delete backend + frontend for that instance
+./scripts/proman.sh <dev|prod> deploy [target]   # git pull, npm install, doppler-wrapped build, pm2 reload
+                                                  #   target = all (default) | backend | frontend
+./scripts/proman.sh <dev|prod> status            # pm2 status
+./scripts/proman.sh <dev|prod> logs              # last 50 log lines, both processes
+```
+
+Everyday redeploy after `git push`:
+
+```bash
+./scripts/proman.sh dev deploy
+./scripts/proman.sh prod deploy
+```
+
+If `ecosystem*.config.js` itself changes (script/args/env), `deploy`/`reload` won't pick it up — pm2 only re-reads that on fresh registration:
+
+```bash
+./scripts/proman.sh <dev|prod> delete
+./scripts/proman.sh <dev|prod> start
+```
 
 ---
 

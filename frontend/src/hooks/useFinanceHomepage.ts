@@ -2,17 +2,21 @@
 import useSWR from 'swr'
 import api from '@/lib/api'
 import type { FinanceHomepageData } from '@/types/finance'
+import { fiscalYearRange } from '@/lib/fiscalYear'
 
-function fetcher(): Promise<FinanceHomepageData> {
+function fetcher(fyStart: string, fyEnd: string): Promise<FinanceHomepageData> {
   return api
-    .get<{ success: boolean; data: FinanceHomepageData }>('/api/v1/finance/homepage')
+    .get<{ success: boolean; data: FinanceHomepageData }>('/api/v1/finance/homepage', {
+      params: { fy_start: fyStart, fy_end: fyEnd },
+    })
     .then(r => r.data.data)
 }
 
-export function useFinanceHomepage() {
+export function useFinanceHomepage(fyStartYear: number) {
+  const { fyStart, fyEnd } = fiscalYearRange(fyStartYear)
   const { data, error, isLoading, mutate } = useSWR<FinanceHomepageData>(
-    'finance/homepage',
-    fetcher,
+    ['finance/homepage', fyStart, fyEnd],
+    () => fetcher(fyStart, fyEnd),
     { refreshInterval: 300_000 }, // 5 min
   )
   return { data: data ?? null, isLoading, isError: !!error, refresh: mutate }

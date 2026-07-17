@@ -4,7 +4,11 @@ set -e
 
 TARGET=${1:-all}  # all | backend | frontend
 
-ROOT=/Users/rishabhsisodiya/PROMAN-prod
+ROOT=/root/proman-prod
+
+[ -f /root/.proman-secrets/doppler.env ] && source /root/.proman-secrets/doppler.env
+DOPPLER_TOKEN=${DOPPLER_TOKEN:-$DOPPLER_TOKEN_PROD}
+: "${DOPPLER_TOKEN:?Set DOPPLER_TOKEN or DOPPLER_TOKEN_PROD in /root/.proman-secrets/doppler.env}"
 
 pull() {
   cd $ROOT
@@ -17,7 +21,7 @@ build_backend() {
   echo "==> Building backend..."
   cd $ROOT/backend
   npm install
-  npm run build
+  doppler run --token="$DOPPLER_TOKEN" -- npm run build
   echo "✓ Backend built"
 }
 
@@ -25,7 +29,7 @@ build_frontend() {
   echo "==> Building frontend..."
   cd $ROOT/frontend
   npm install
-  npm run build
+  doppler run --token="$DOPPLER_TOKEN" -- npm run build
   echo "✓ Frontend built"
 }
 

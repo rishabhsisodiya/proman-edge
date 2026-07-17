@@ -3,19 +3,22 @@ module.exports = {
     {
       name: 'proman-backend',
       cwd: '/root/proman/backend',
-      script: 'dist/index.js',
+      script: 'doppler',
+      args: 'run -- node dist/index.js',
       env: {
-        NODE_ENV: 'production'
+        NODE_ENV: 'production',
+        DOPPLER_TOKEN: process.env.DOPPLER_TOKEN
       }
     },
     {
       name: 'proman-frontend',
       cwd: '/root/proman/frontend',
-      script: 'npm',
-      args: 'start',
+      script: 'doppler',
+      args: 'run -- npm run start -- -p 3000',
       env: {
         NODE_ENV: 'production',
-        PORT: '3000'
+        PORT: '3000',
+        DOPPLER_TOKEN: process.env.DOPPLER_TOKEN
       }
     }
   ]

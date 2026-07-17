@@ -5,6 +5,8 @@ import type { ReactElement, ReactNode, CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useDispatchHomepage, getDocumentationChecklist, useEwayBillStatus } from '@/hooks/useDispatchHomepage'
+import { FiscalYearSelect } from '@/components/widgets/FiscalYearSelect'
+import { currentFiscalYearStart } from '@/lib/fiscalYear'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import type { DocumentationChecklist, DispatchPipelineRow } from '@/types/dispatch'
@@ -92,7 +94,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 // Blocker → pill tone + row stripe, matching the template's severity coding.
 function blockerTone(blocker: DispatchPipelineRow['blocker']): 'd' | 'w' | 's' | 'n' {
   if (blocker === 'Ready') return 's'
-  if (blocker === 'Vehicle pending' || blocker === 'e-Way pending') return 'w'
+  if (blocker === 'Vehicle pending') return 'w'
   if (blocker === 'Customer PO pending') return 'd'
   return 'n' // QC pending
 }
@@ -118,7 +120,8 @@ function vehicleBookingTone(row: { vehicleNo: string | null }): 'd' | 'w' {
 export default function DispatchHeadPage() {
   const router = useRouter()
   const { user } = useCurrentUser()
-  const { data, isLoading, isError, refresh } = useDispatchHomepage()
+  const [fyStartYear, setFyStartYear] = useState(currentFiscalYearStart())
+  const { data, isLoading, isError, refresh } = useDispatchHomepage(fyStartYear)
   const { data: ewayBills } = useEwayBillStatus()
 
   const [showSwitcher, setShowSwitcher] = useState(false)
@@ -241,6 +244,7 @@ export default function DispatchHeadPage() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <FiscalYearSelect value={fyStartYear} onChange={setFyStartYear} />
             {data.dispatchBlocked.count > 0 && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 99, background: 'rgba(239,68,68,.18)', color: '#FF9B9B', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <i className="ti ti-alert-triangle" style={{ fontSize: 12 }} />{data.dispatchBlocked.count} dispatch blocked

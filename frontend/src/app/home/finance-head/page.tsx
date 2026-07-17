@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useFinanceHomepage, releasePayment, approvePurchaseOrder, approveJournalEntry } from '@/hooks/useFinanceHomepage'
 import { useFinanceSettings, setGmTarget, clearGmTargetOverride } from '@/hooks/useFinanceSettings'
+import { FiscalYearSelect } from '@/components/widgets/FiscalYearSelect'
+import { currentFiscalYearStart } from '@/lib/fiscalYear'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import type { SparkPoint, PeriodStat, TopDebtor, PayablesInvoiceRow, GrossMarginStat } from '@/types/finance'
@@ -399,7 +401,8 @@ function GaugeRing({ pct, target, subLabel }: { pct: number | null; target: numb
 export default function FinanceHeadPage() {
   const router = useRouter()
   const { user } = useCurrentUser()
-  const { data, isLoading, isError, refresh } = useFinanceHomepage()
+  const [fyStartYear, setFyStartYear] = useState(currentFiscalYearStart())
+  const { data, isLoading, isError, refresh } = useFinanceHomepage(fyStartYear)
 
   const [rcvEntity, setRcvEntity] = useState<string | null>(null)
   const [payEntity, setPayEntity] = useState<string | null>(null)
@@ -566,6 +569,7 @@ export default function FinanceHeadPage() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <FiscalYearSelect value={fyStartYear} onChange={setFyStartYear} />
             {/* Dashboard switcher */}
             <div style={{ position: 'relative' }} ref={switcherRef}>
               <button onClick={() => setShowSwitcher(v => !v)} style={{

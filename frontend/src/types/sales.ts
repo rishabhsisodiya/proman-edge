@@ -131,6 +131,22 @@ export interface QuotationDetail {
   deepLink: string
 }
 
+export interface FollowUpSummary {
+  quotation: string
+  communication: string
+  recipient: string
+  emailed: boolean
+}
+
+export interface SalesActionResult {
+  ok: boolean
+  widget: string
+  summary?: FollowUpSummary
+  deepLink?: string
+  meta?: { note: string }
+  error?: { code: string; message: string }
+}
+
 export interface SalesHomepageData {
   syncedAt:   string
   erpBaseUrl: string
