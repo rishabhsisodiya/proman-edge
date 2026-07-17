@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { getSalesHomepage, getQuotationDetail, extendQuotation, convertToSalesOrder } from '../services/salesService'
+import { getSalesHomepage, getQuotationDetail, extendQuotation, convertToSalesOrder, logFollowUp } from '../services/salesService'
 import { getSalesHomepageFromDB } from '../services/salesServiceDB'
 
 const router = Router()
@@ -54,6 +54,20 @@ router.post('/quotation/:id/convert', async (req: Request, res: Response) => {
     res.json({ success: true, ...result })
   } catch (err) {
     res.status(500).json({ success: false, error: logErr('convert', req.params.id, err) })
+  }
+})
+
+// POST /api/v1/sales/quotation/:id/followup — body: { message: string, sendEmail?: boolean }
+router.post('/quotation/:id/followup', async (req: Request, res: Response) => {
+  try {
+    const { message, sendEmail } = req.body as { message?: string; sendEmail?: boolean }
+    if (!message?.trim()) {
+      return res.status(400).json({ success: false, error: 'message is required' })
+    }
+    const result = await logFollowUp(req.params.id, message.trim(), sendEmail !== false)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    res.status(500).json({ success: false, error: logErr('followup', req.params.id, err) })
   }
 })
 

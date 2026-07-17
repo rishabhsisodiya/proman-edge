@@ -2,17 +2,21 @@
 import useSWR from 'swr'
 import api from '@/lib/api'
 import type { ProcurementHomepageData, PODetail, ProcurementActionResult } from '@/types/procurement'
+import { fiscalYearRange } from '@/lib/fiscalYear'
 
-function fetcher(): Promise<ProcurementHomepageData> {
+function fetcher(fyStart: string, fyEnd: string): Promise<ProcurementHomepageData> {
   return api
-    .get<{ success: boolean; data: ProcurementHomepageData }>('/api/v1/procurement/homepage')
+    .get<{ success: boolean; data: ProcurementHomepageData }>('/api/v1/procurement/homepage', {
+      params: { fy_start: fyStart, fy_end: fyEnd },
+    })
     .then(r => r.data.data)
 }
 
-export function useProcurementHomepage() {
+export function useProcurementHomepage(fyStartYear: number) {
+  const { fyStart, fyEnd } = fiscalYearRange(fyStartYear)
   const { data, error, isLoading, mutate } = useSWR<ProcurementHomepageData>(
-    'procurement/homepage',
-    fetcher,
+    ['procurement/homepage', fyStart, fyEnd],
+    () => fetcher(fyStart, fyEnd),
     { refreshInterval: 300_000 }, // 5 min
   )
   return { data: data ?? null, isLoading, isError: !!error, refresh: mutate }

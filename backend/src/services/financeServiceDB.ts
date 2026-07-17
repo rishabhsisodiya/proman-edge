@@ -28,6 +28,12 @@ export async function getCompanies(): Promise<string[]> {
 function pad(n: number) { return String(n).padStart(2, '0') }
 function iso(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
 
+function currentFiscalYearRange(): { fyStart: string; fyEnd: string } {
+  const now = new Date()
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  return { fyStart: `${y}-04-01`, fyEnd: `${y + 1}-03-31` }
+}
+
 export function periodRange(period: Period, asOf: Date = new Date()): { start: string; end: string; label: string } {
   const end = iso(asOf)
   const y = asOf.getFullYear()
@@ -226,7 +232,7 @@ async function getRevenue(companies: string[]): Promise<Revenue> {
 interface OverdueRow { overdue_total: number | null; over_90_value: number | null; over_90_count: number | null }
 
 export async function getOverdueTotalForCompanies(
-  companies: string[], asOf: string,
+  companies: string[], asOf: string, fyStart?: string,
 ): Promise<{ total: number; over90: number; over90Count: number }> {
   if (!companies.length) return { total: 0, over90: 0, over90Count: 0 }
   const placeholders = companies.map(() => '?').join(',')
@@ -250,23 +256,23 @@ export async function getOverdueTotalForCompanies(
              WHERE ple.delinked = 0
                AND ple.party_type = 'Customer'
                AND ple.company    IN (${placeholders})
-               AND ple.posting_date <= ?
+               AND ple.posting_date BETWEEN ? AND ?
              GROUP BY ple.against_voucher_no
              HAVING ABS(net) > 0.01
          ) per_ref
      ) agg`,
-    [asOf, ...companies, asOf],
+    [asOf, ...companies, fyStart ?? '1900-01-01', asOf],
   )
   const r = rows[0]
   return { total: Number(r?.overdue_total ?? 0), over90: Number(r?.over_90_value ?? 0), over90Count: Number(r?.over_90_count ?? 0) }
 }
 
-async function getOverdueForEntity(company: string) {
-  return getOverdueTotalForCompanies([company], iso(new Date()))
+async function getOverdueForEntity(company: string, fyStart: string, fyEnd: string) {
+  return getOverdueTotalForCompanies([company], fyEnd, fyStart)
 }
 
-async function getOverdueReceivables(companies: string[]): Promise<OverdueReceivables> {
-  const perEntity = await Promise.all(companies.map(async c => ({ entity: c, ...(await getOverdueForEntity(c)) })))
+async function getOverdueReceivables(companies: string[], fyStart: string, fyEnd: string): Promise<OverdueReceivables> {
+  const perEntity = await Promise.all(companies.map(async c => ({ entity: c, ...(await getOverdueForEntity(c, fyStart, fyEnd)) })))
   return {
     total:       perEntity.reduce((s, e) => s + e.total, 0),
     over90:      perEntity.reduce((s, e) => s + e.over90, 0),
@@ -776,8 +782,9 @@ export async function submitJournalEntry(jeNo: string): Promise<FinanceActionRes
 
 // ── Main homepage aggregate ───────────────────────────────────────────────────
 
-export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
+export async function getFinanceHomepage(fyStart?: string, fyEnd?: string): Promise<FinanceHomepageData> {
   const companies = await getCompanies()
+  const fy = fyStart && fyEnd ? { fyStart, fyEnd } : currentFiscalYearRange()
 
   const [
     cashBank, revenue, overdueReceivables, receivablesAgeing,
@@ -785,7 +792,7 @@ export async function getFinanceHomepage(): Promise<FinanceHomepageData> {
   ] = await Promise.all([
     getCashBank(companies),
     getRevenue(companies),
-    getOverdueReceivables(companies),
+    getOverdueReceivables(companies, fy.fyStart, fy.fyEnd),
     getReceivablesAgeing(companies),
     getGstLiability(companies),
     getPayablesDue7d(companies),

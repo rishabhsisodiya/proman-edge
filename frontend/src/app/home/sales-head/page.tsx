@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSalesHomepage } from '@/hooks/useSalesHomepage'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useQuotationDetail, extendQuotation, convertToSalesOrder } from '@/hooks/useQuotationDetail'
+import { useQuotationDetail, extendQuotation, convertToSalesOrder, logFollowUp } from '@/hooks/useQuotationDetail'
 import type { FunnelStage, FollowUpItem } from '@/types/sales'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
@@ -207,6 +207,7 @@ export default function SalesHeadHomepage() {
   const [actionMsg, setActionMsg]       = useState<{ msg: string; url?: string } | null>(null)
   const [convertResult, setConvertResult] = useState<{ quotation: string; soName: string; soUrl: string } | null>(null)
   const [convertPrompt, setConvertPrompt] = useState<{ quotation: string; deliveryDate: string } | null>(null)
+  const [followUpPrompt, setFollowUpPrompt] = useState<{ quotation: string; customer: string; message: string; sendEmail: boolean } | null>(null)
   const bellRef     = useRef<HTMLDivElement>(null)
   const actionQRef  = useRef<HTMLDivElement>(null)
   const switcherRef = useRef<HTMLDivElement>(null)
@@ -240,6 +241,32 @@ export default function SalesHeadHomepage() {
       // Strip HTML tags from Frappe error messages
       const clean = raw.replace(/<[^>]+>/g, '').trim()
       toast(clean || 'Extend failed — check ERPNext connection')
+    }
+  }
+
+  function handleLogFollowUp(quotation: string, customer: string, product?: string, validTill?: string) {
+    const message =
+      `Hi ${customer},\n\n` +
+      `I am writing to follow up on Quotation ${quotation}` +
+      `${product ? ` for ${product}` : ''}${validTill ? `, valid till ${validTill}` : ''}.\n\n` +
+      `Could you please share an update on this, or let us know if you need any additional information from our side to move forward?\n\n` +
+      `Looking forward to your response.\n\nBest regards,\nPISPL`
+    setFollowUpPrompt({ quotation, customer, message, sendEmail: true })
+  }
+
+  async function doLogFollowUp() {
+    if (!followUpPrompt) return
+    const { quotation, message, sendEmail } = followUpPrompt
+    setFollowUpPrompt(null)
+    try {
+      const result = await logFollowUp(quotation, message, sendEmail)
+      toast(result.meta?.note ?? 'Follow-up logged')
+      setDrawerDeal(null)
+      refresh()
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : ''
+      const clean = raw.replace(/<[^>]+>/g, '').trim()
+      toast(clean || 'Follow-up failed — check ERPNext connection')
     }
   }
 
@@ -723,7 +750,7 @@ export default function SalesHeadHomepage() {
                             </span>
                           </td>
                           <td style={{ padding: '6px 7px', borderBottom: `1px solid ${BORDER}` }}>
-                            <button onClick={e => { e.stopPropagation(); window.open(erpUrl('communication'), '_blank') }}
+                            <button onClick={e => { e.stopPropagation(); handleLogFollowUp(r.quotation, r.customer, r.product, r.validTill) }}
                               style={{ fontSize: 9, padding: '3px 9px', borderRadius: 99, background: 'none', cursor: 'pointer', border: `1px solid ${NAVY}`, color: NAVY }}>
                               Log follow-up
                             </button>
@@ -961,7 +988,7 @@ export default function SalesHeadHomepage() {
             </div>
             {/* Footer actions */}
             <div style={{ padding: '13px 17px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8 }}>
-              <button onClick={() => window.open(erpUrl('communication?reference_doctype=Quotation'), '_blank')}
+              <button onClick={() => drawerDeal && handleLogFollowUp(drawerDeal.quotation, drawerDeal.customer, detail?.product ?? drawerDeal.product, detail?.validTill ?? drawerDeal.validTill)}
                 style={{ flex: 1, fontSize: 11, fontWeight: 600, padding: 9, borderRadius: 9, cursor: 'pointer', border: `1px solid ${NAVY}`, background: '#fff', color: NAVY }}>
                 Log follow-up
               </button>
@@ -994,6 +1021,50 @@ export default function SalesHeadHomepage() {
               <button onClick={doConvert} disabled={!convertPrompt.deliveryDate}
                 style={{ flex: 2, padding: '9px 0', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }}>
                 Convert ↗
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {followUpPrompt && (
+        <>
+          {/* Scrim */}
+          <div onClick={() => setFollowUpPrompt(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(42,47,105,.32)', zIndex: 350 }} />
+          {/* Side drawer */}
+          <div style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 380, maxWidth: '92vw', background: '#fff', boxShadow: '-12px 0 40px rgba(42,47,105,.2)', zIndex: 351, display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div style={{ background: NAVY, color: '#fff', padding: '15px 17px', position: 'relative' }}>
+              <button onClick={() => setFollowUpPrompt(null)}
+                style={{ position: 'absolute', top: 13, right: 14, color: 'rgba(255,255,255,.6)', cursor: 'pointer', fontSize: 20, background: 'none', border: 'none' }}>×</button>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{followUpPrompt.quotation}</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>Log follow-up · {followUpPrompt.customer}</div>
+            </div>
+            {/* Body */}
+            <div style={{ padding: '15px 17px', overflowY: 'auto', flex: 1 }}>
+              <div style={{ fontSize: 12, color: TEXT2, marginBottom: 8 }}>
+                Review and send a follow-up email to the customer:
+              </div>
+              <div style={{ fontSize: 11, color: TEXT2, marginBottom: 4, fontWeight: 600 }}>Message</div>
+              <textarea value={followUpPrompt.message} rows={10}
+                onChange={e => setFollowUpPrompt(p => p ? { ...p, message: e.target.value } : p)}
+                style={{ width: '100%', fontSize: 12, padding: '8px 10px', border: `1px solid ${BORDER}`, borderRadius: 8, color: TEXT, fontFamily: 'Arial,sans-serif', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: TEXT2, marginTop: 12, cursor: 'pointer' }}>
+                <input type="checkbox" checked={followUpPrompt.sendEmail}
+                  onChange={e => setFollowUpPrompt(p => p ? { ...p, sendEmail: e.target.checked } : p)} />
+                Email the customer
+              </label>
+            </div>
+            {/* Footer */}
+            <div style={{ padding: '13px 17px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8 }}>
+              <button onClick={() => setFollowUpPrompt(null)}
+                style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: 9, borderRadius: 9, cursor: 'pointer', border: `1px solid ${BORDER}`, background: '#fff', color: TEXT2 }}>
+                Cancel
+              </button>
+              <button onClick={doLogFollowUp} disabled={!followUpPrompt.message.trim()}
+                style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: 9, borderRadius: 9, cursor: 'pointer', border: `1px solid ${ORANGE}`, background: ORANGE, color: '#fff', opacity: followUpPrompt.message.trim() ? 1 : .5 }}>
+                {followUpPrompt.sendEmail ? 'Send email & log' : 'Log follow-up'}
               </button>
             </div>
           </div>

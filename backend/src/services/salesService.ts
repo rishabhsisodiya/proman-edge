@@ -1,5 +1,5 @@
 import { cacheGet, cacheSet } from '../cache/redis'
-import type { SalesHomepageData, KPI, FunnelStage, QuotationDetail } from '../types/sales'
+import type { SalesHomepageData, KPI, FunnelStage, QuotationDetail, SalesActionResult } from '../types/sales'
 import { frappeGet, frappePost } from '../lib/frappeClient'
 import { rupees, statusToDirection, statusToColor, dateLabel } from '../lib/format'
 import type {
@@ -346,4 +346,15 @@ export async function convertToSalesOrder(
     body,
   )
   return { ok: true, salesOrder: result?.name as string | undefined }
+}
+
+export async function logFollowUp(
+  quotation: string,
+  message: string,
+  sendEmail = true,
+): Promise<SalesActionResult> {
+  return frappePost<SalesActionResult>(
+    `${SALES}.log_follow_up`,
+    { name: quotation, message, send_email: sendEmail ? 1 : 0 },
+  )
 }

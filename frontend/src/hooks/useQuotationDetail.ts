@@ -1,6 +1,6 @@
 import useSWR from 'swr'
 import api from '@/lib/api'
-import type { QuotationDetail } from '@/types/sales'
+import type { QuotationDetail, SalesActionResult } from '@/types/sales'
 
 const fetcher = (url: string) =>
   api.get<{ success: boolean; data: QuotationDetail }>(url).then(r => r.data.data)
@@ -28,6 +28,21 @@ export async function extendQuotation(
   } catch (err: unknown) {
     const axiosError = err as { response?: { data?: { error?: string } }; message?: string }
     const msg = axiosError?.response?.data?.error ?? axiosError?.message ?? 'Extend failed'
+    throw new Error(msg)
+  }
+}
+
+export async function logFollowUp(quotation: string, message: string, sendEmail = true): Promise<SalesActionResult> {
+  try {
+    const res = await api.post<{ success: boolean; data?: SalesActionResult; error?: string }>(
+      `/api/v1/sales/quotation/${encodeURIComponent(quotation)}/followup`,
+      { message, sendEmail },
+    )
+    if (!res.data.success || !res.data.data) throw new Error(res.data.error ?? 'Follow-up failed')
+    return res.data.data
+  } catch (err: unknown) {
+    const axiosError = err as { response?: { data?: { error?: string } }; message?: string }
+    const msg = axiosError?.response?.data?.error ?? axiosError?.message ?? 'Follow-up failed'
     throw new Error(msg)
   }
 }

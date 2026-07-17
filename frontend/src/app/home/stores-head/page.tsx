@@ -5,6 +5,8 @@ import type { ReactElement, ReactNode, CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useStoresHomepage, submitGrn, createMaterialRequest, createPoFromMr } from '@/hooks/useStoresHomepage'
+import { FiscalYearSelect } from '@/components/widgets/FiscalYearSelect'
+import { currentFiscalYearStart } from '@/lib/fiscalYear'
 import { colors } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import type { PickListRow, BelowReorderNoPoRow } from '@/types/stores'
@@ -135,7 +137,8 @@ function grnApprovalShortLabel(state: string): string {
 export default function StoresHeadPage() {
   const router = useRouter()
   const { user } = useCurrentUser()
-  const { data, isLoading, isError, refresh } = useStoresHomepage()
+  const [fyStartYear, setFyStartYear] = useState(currentFiscalYearStart())
+  const { data, isLoading, isError, refresh } = useStoresHomepage(fyStartYear)
 
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showNotif, setShowNotif]       = useState(false)
@@ -355,6 +358,7 @@ export default function StoresHeadPage() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <FiscalYearSelect value={fyStartYear} onChange={setFyStartYear} />
             {data.grnsPendingToday.count > 0 && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 99, background: 'rgba(239,68,68,.18)', color: '#FF9B9B', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <i className="ti ti-alert-triangle" style={{ fontSize: 12 }} />{data.grnsPendingToday.count} GRN{data.grnsPendingToday.count === 1 ? '' : 's'} pending today

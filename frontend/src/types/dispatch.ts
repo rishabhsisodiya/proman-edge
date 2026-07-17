@@ -15,7 +15,7 @@ export interface DispatchPipelineRow {
   customerName: string
   product: string
   targetDate: string | null
-  blocker: 'QC pending' | 'Customer PO pending' | 'e-Way pending' | 'Vehicle pending' | 'Ready'
+  blocker: 'QC pending' | 'Customer PO pending' | 'Vehicle pending' | 'Ready'
 }
 
 export interface DocumentationChecklist {

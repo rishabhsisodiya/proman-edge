@@ -4,9 +4,13 @@ import { getStoresHomepage, submitGrn, createMaterialRequest, createPoFromMr } f
 const router = Router()
 
 // GET /api/v1/stores/homepage
-router.get('/homepage', async (_req: Request, res: Response) => {
+router.get('/homepage', async (req: Request, res: Response) => {
   try {
-    const data = await getStoresHomepage()
+    const { fy_start, fy_end } = req.query
+    if ((fy_start && !fy_end) || (!fy_start && fy_end)) {
+      return res.status(400).json({ success: false, error: 'fy_start and fy_end must be provided together' })
+    }
+    const data = await getStoresHomepage(fy_start as string | undefined, fy_end as string | undefined)
     res.json({ success: true, data })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
