@@ -4,6 +4,9 @@ import { getFinanceSparkline } from './financeSnapshotService'
 import { getGmTargetPct } from './financeSettingsService'
 import { rupees } from '../lib/format'
 import * as siteSheets from './financeSiteSheetService'
+import { cacheGet, cacheSet } from '../cache/redis'
+
+const HOMEPAGE_CACHE_TTL = 60 // seconds
 import type {
   FinanceHomepageData, CashBank, CashBankAccount, EntityAmountWithTrend,
   Revenue, PeriodStat, Period, SparkPoint,
@@ -783,6 +786,10 @@ export async function submitJournalEntry(jeNo: string): Promise<FinanceActionRes
 // ── Main homepage aggregate ───────────────────────────────────────────────────
 
 export async function getFinanceHomepage(fyStart?: string, fyEnd?: string): Promise<FinanceHomepageData> {
+  const cacheKey = `finance:homepage:${fyStart ?? 'default'}:${fyEnd ?? 'default'}`
+  const cached = await cacheGet<FinanceHomepageData>(cacheKey)
+  if (cached) return cached
+
   const companies = await getCompanies()
   const fy = fyStart && fyEnd ? { fyStart, fyEnd } : currentFiscalYearRange()
 
@@ -828,5 +835,7 @@ export async function getFinanceHomepage(fyStart?: string, fyEnd?: string): Prom
   // ACE / PROMAX / QMS Pro / Dynatek — no DB access, client pastes data into an xlsx per
   // site (backend/data/site-sheets/). Merged in here, isolated in financeSiteSheetService.ts
   // so this ingestion path can be swapped out later without touching the DB queries above.
-  return siteSheets.mergeSiteSheetsIntoHomepage(homepage)
+  const result = siteSheets.mergeSiteSheetsIntoHomepage(homepage)
+  await cacheSet(cacheKey, result, HOMEPAGE_CACHE_TTL)
+  return result
 }

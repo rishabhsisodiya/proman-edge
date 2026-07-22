@@ -25,13 +25,33 @@ function getPool(): mysql.Pool {
     database,
     user,
     password: process.env.DB_PASS || '',
-    connectionLimit: 10,
+    connectionLimit: 5,
     waitForConnections: true,
     ...sslOptions,
   })
 
   return pool
 }
+
+// Without this, killing/restarting the process (Ctrl+C, nodemon reload) leaves the
+// pool's connections open on the DB side until MariaDB's wait_timeout reaps them —
+// which silently eats into a low max_user_connections cap across restarts.
+async function closePool() {
+  if (pool) {
+    await pool.end()
+    pool = null
+  }
+}
+
+process.on('SIGINT', async () => {
+  await closePool()
+  process.exit(0)
+})
+
+process.on('SIGTERM', async () => {
+  await closePool()
+  process.exit(0)
+})
 
 export async function query<T = unknown>(sql: string, params?: (string | number | null)[]): Promise<T[]> {
   const [rows] = await getPool().execute(sql, params)
