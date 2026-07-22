@@ -10,6 +10,7 @@ function getPool(): mysql.Pool {
   const port = parseInt(process.env.DB_PORT || '3306')
   const database = process.env.DB_NAME || '_800ba922c4374766'
   const user = process.env.DB_USER || '_800ba922c4374766'
+  const connectionLimit = parseInt(process.env.DB_CONNECTION_LIMIT || '5')
 
   console.log(`[db] creating pool → ${user}@${host}:${port}/${database}`)
 
@@ -25,7 +26,7 @@ function getPool(): mysql.Pool {
     database,
     user,
     password: process.env.DB_PASS || '',
-    connectionLimit: 5,
+    connectionLimit,
     waitForConnections: true,
     ...sslOptions,
   })
