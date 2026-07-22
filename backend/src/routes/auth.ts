@@ -92,6 +92,19 @@ router.post('/login', async (req: Request, res: Response) => {
     return
   }
 
+  // Demo login — bypasses ERPNext DB auth entirely, only for local testing when the DB
+  // connection budget is contended. Must never be enabled outside dev (ALLOW_DEMO_LOGIN unset in prod).
+  if (process.env.ALLOW_DEMO_LOGIN === 'true' && username === 'admin' && password === 'rishabh') {
+    console.log('[auth] demo login used')
+    const token = jwt.sign(
+      { username: 'admin', fullName: 'Demo Admin', role: 'Managing Director', roleSlug: 'md', email: 'admin@demo.local', companies: [] },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN },
+    )
+    res.json({ success: true, data: { token, user: { username: 'admin', fullName: 'Demo Admin', role: 'Managing Director', roleSlug: 'md', companies: [] } } })
+    return
+  }
+
   // All auth goes directly through MariaDB — no Frappe process required
   console.log(`[auth] login attempt: ${username}`)
   let authRow: { password: string } | undefined
